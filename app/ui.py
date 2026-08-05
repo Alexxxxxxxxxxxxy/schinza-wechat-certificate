@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import threading
 import webbrowser
 from pathlib import Path
@@ -12,6 +13,14 @@ import customtkinter as ctk
 import pyperclip
 from PIL import Image
 
+from app.article_reader import (
+    ARTICLE_EXPORT_FORMATS,
+    ARTICLE_EXPORT_LABELS,
+    extension_for_article_format,
+    fetch_and_parse_article,
+    format_key_for_article_label,
+    render_article_export,
+)
 from app.ca_setup import PROXY_HOST, PROXY_PORT, install_ca_windows, open_p12_in_explorer
 from app.clipboard_watch import ClipboardWatcher
 from app.credentials import (
@@ -28,25 +37,32 @@ from app.history_export import (
     render_export,
     write_export,
 )
+from app.history_ranges import (
+    DEFAULT_HISTORY_DAYS,
+    HISTORY_RANGE_LABELS,
+    days_for_label,
+    label_for_days,
+)
 from app.mitm_capture import MitmCaptureService
+from app.sightings import SightingsStore, default_sightings_path
 from app.store import TTL_MINUTES, AccountStore
 
-# Ink / jade theme — avoid purple / cream AI defaults
+# ui-ux-pro-max: exaggerated minimal dark utility — slate + run green
 COLORS = {
-    "bg": "#12161c",
-    "panel": "#1a212b",
-    "card": "#222b38",
-    "border": "#2e3a4a",
-    "text": "#e8eef6",
-    "muted": "#8b9bb0",
-    "accent": "#3db89a",
-    "accent_hover": "#4fd0af",
+    "bg": "#0F172A",
+    "panel": "#1E293B",
+    "card": "#272F42",
+    "sidebar": "#111827",
+    "border": "#475569",
+    "text": "#F8FAFC",
+    "muted": "#94A3B8",
+    "accent": "#22C55E",
+    "accent_hover": "#4ADE80",
     "warn": "#e0a35c",
-    "danger": "#d46a6a",
-    "ok": "#5ecf9a",
+    "danger": "#EF4444",
+    "ok": "#4ADE80",
+    "nav_idle": "#1E293B",
 }
-
-HISTORY_DAYS = 7
 
 
 def _fmt_remain(seconds: int) -> str:
@@ -207,21 +223,26 @@ class CertificateApp(ctk.CTk):
         super().__init__()
         self.root_dir = root_dir
         self.store = AccountStore(root_dir / "data" / "accounts.json")
+        self.sightings = SightingsStore(default_sightings_path(root_dir))
         self._pending_capture_id: str | None = None
         self._cards: dict[str, AccountCard] = {}
         self._rebuild_job: str | None = None
         self._tab = "credentials"
+        self._history_days = DEFAULT_HISTORY_DAYS
         self._history_articles: list[dict[str, Any]] = []
         self._history_account_name: str = ""
+        self._history_cred: dict[str, Any] = {}
         self._history_fetching = False
+        self._article_exporting = False
         self._account_options: list[tuple[str, str]] = []  # (label, id)
+        self._nav_btns: dict[str, ctk.CTkButton] = {}
 
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("dark-blue")
 
         self.title("Schinza")
-        self.geometry("980x860")
-        self.minsize(880, 740)
+        self.geometry("1080x880")
+        self.minsize(960, 760)
         self.configure(fg_color=COLORS["bg"])
         self._apply_window_icon()
 
@@ -232,8 +253,15 @@ class CertificateApp(ctk.CTk):
 
         self._build_header()
 
-        self.body = ctk.CTkFrame(self, fg_color="transparent")
-        self.body.grid(row=1, column=0, sticky="nsew")
+        self.main = ctk.CTkFrame(self, fg_color="transparent")
+        self.main.grid(row=1, column=0, sticky="nsew", padx=0, pady=0)
+        self.main.grid_columnconfigure(1, weight=1)
+        self.main.grid_rowconfigure(0, weight=1)
+
+        self._build_sidebar()
+
+        self.body = ctk.CTkFrame(self.main, fg_color="transparent")
+        self.body.grid(row=0, column=1, sticky="nsew")
         self.body.grid_columnconfigure(0, weight=1)
         self.body.grid_rowconfigure(0, weight=1)
 
@@ -263,12 +291,13 @@ class CertificateApp(ctk.CTk):
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
     def _build_header(self) -> None:
-        header = ctk.CTkFrame(self, fg_color=COLORS["panel"], corner_radius=0)
+        header = ctk.CTkFrame(self, fg_color=COLORS["panel"], corner_radius=0, height=64)
         header.grid(row=0, column=0, sticky="ew")
-        header.grid_columnconfigure(0, weight=1)
+        header.grid_columnconfigure(1, weight=1)
+        header.grid_propagate(False)
 
         title_row = ctk.CTkFrame(header, fg_color="transparent")
-        title_row.grid(row=0, column=0, sticky="w", padx=24, pady=(18, 2))
+        title_row.grid(row=0, column=0, sticky="w", padx=20, pady=12)
 
         icon_path = self._resolve_asset("logo-128.png") or self._resolve_asset("logo.png")
         if icon_path is not None:
@@ -277,7 +306,7 @@ class CertificateApp(ctk.CTk):
                 self._header_logo = ctk.CTkImage(
                     light_image=logo_img,
                     dark_image=logo_img,
-                    size=(36, 36),
+                    size=(32, 32),
                 )
                 ctk.CTkLabel(title_row, image=self._header_logo, text="").pack(
                     side="left", padx=(0, 10)
@@ -285,39 +314,71 @@ class CertificateApp(ctk.CTk):
             except Exception:
                 pass
 
-        title = ctk.CTkLabel(
+        ctk.CTkLabel(
             title_row,
             text="Schinza",
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=22, weight="bold"),
+            font=ctk.CTkFont(family="Microsoft YaHei UI", size=20, weight="bold"),
             text_color=COLORS["text"],
             anchor="w",
-        )
-        title.pack(side="left")
+        ).pack(side="left")
 
-        sub = ctk.CTkLabel(
+        ctk.CTkLabel(
             header,
-            text=f"公众号凭证助手 · 有效期 {TTL_MINUTES} 分钟 · 近 {HISTORY_DAYS} 天历史文章拉取与多格式导出",
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=13),
+            text=f"凭证 {TTL_MINUTES} 分钟 · 历史拉取 · HTML / MD / TXT / JSON",
+            font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
+            text_color=COLORS["muted"],
+            anchor="e",
+        ).grid(row=0, column=1, sticky="e", padx=20)
+
+    def _build_sidebar(self) -> None:
+        side = ctk.CTkFrame(
+            self.main,
+            fg_color=COLORS["sidebar"],
+            corner_radius=0,
+            width=188,
+            border_width=0,
+        )
+        side.grid(row=0, column=0, sticky="nsw")
+        side.grid_propagate(False)
+        side.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            side,
+            text="栏目",
+            font=ctk.CTkFont(family="Microsoft YaHei UI", size=11),
             text_color=COLORS["muted"],
             anchor="w",
-        )
-        sub.grid(row=1, column=0, sticky="w", padx=24, pady=(0, 10))
+        ).grid(row=0, column=0, sticky="ew", padx=18, pady=(20, 8))
 
-        self.tab_seg = ctk.CTkSegmentedButton(
-            header,
-            values=["凭证管理", "历史文章"],
-            command=self._on_tab_change,
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=13, weight="bold"),
-            selected_color=COLORS["accent"],
-            selected_hover_color=COLORS["accent_hover"],
-            unselected_color=COLORS["card"],
-            unselected_hover_color=COLORS["border"],
-            text_color="#0b1412",
-            text_color_disabled=COLORS["muted"],
-            height=34,
+        for i, (key, label) in enumerate(
+            (("credentials", "凭证管理"), ("history", "历史文章"))
+        ):
+            btn = ctk.CTkButton(
+                side,
+                text=label,
+                height=40,
+                corner_radius=10,
+                fg_color=COLORS["nav_idle"],
+                hover_color=COLORS["border"],
+                text_color=COLORS["text"],
+                font=ctk.CTkFont(family="Microsoft YaHei UI", size=14, weight="bold"),
+                anchor="w",
+                command=lambda k=key: self._show_tab(k),
+            )
+            btn.grid(row=i + 1, column=0, sticky="ew", padx=12, pady=4)
+            self._nav_btns[key] = btn
+
+        tip = ctk.CTkLabel(
+            side,
+            text="getmsg 可能漏同日推送\n开抓包点开文章或补录",
+            font=ctk.CTkFont(family="Microsoft YaHei UI", size=11),
+            text_color=COLORS["muted"],
+            anchor="w",
+            justify="left",
+            wraplength=150,
         )
-        self.tab_seg.set("凭证管理")
-        self.tab_seg.grid(row=2, column=0, sticky="w", padx=24, pady=(0, 14))
+        tip.grid(row=4, column=0, sticky="sew", padx=18, pady=(0, 20))
+        side.grid_rowconfigure(3, weight=1)
 
     def _resolve_asset(self, name: str) -> Path | None:
         import sys
@@ -352,23 +413,28 @@ class CertificateApp(ctk.CTk):
         except Exception:
             pass
 
-    def _on_tab_change(self, value: str) -> None:
-        if value == "历史文章":
-            self._show_tab("history")
-        else:
-            self._show_tab("credentials")
-
     def _show_tab(self, tab: str) -> None:
         self._tab = tab
+        for key, btn in self._nav_btns.items():
+            if key == tab:
+                btn.configure(
+                    fg_color=COLORS["accent"],
+                    text_color="#052e16",
+                    hover_color=COLORS["accent_hover"],
+                )
+            else:
+                btn.configure(
+                    fg_color=COLORS["nav_idle"],
+                    text_color=COLORS["text"],
+                    hover_color=COLORS["border"],
+                )
         if tab == "history":
             self.cred_view.grid_remove()
             self.hist_view.grid(row=0, column=0, sticky="nsew")
-            self.tab_seg.set("历史文章")
             self.refresh_history_account_options()
         else:
             self.hist_view.grid_remove()
             self.cred_view.grid(row=0, column=0, sticky="nsew")
-            self.tab_seg.set("凭证管理")
 
     def _build_mitm_panel(self) -> None:
         panel = ctk.CTkFrame(
@@ -592,20 +658,21 @@ class CertificateApp(ctk.CTk):
             font=ctk.CTkFont(family="Microsoft YaHei UI", size=15, weight="bold"),
             text_color=COLORS["text"],
             anchor="w",
-        ).grid(row=0, column=0, columnspan=3, sticky="w", padx=18, pady=(14, 4))
+        ).grid(row=0, column=0, columnspan=4, sticky="w", padx=18, pady=(14, 4))
 
         ctk.CTkLabel(
             panel,
             text=(
-                f"使用「凭证管理」里未过期的凭证，调用与 Schinza 相同的 getmsg 接口，"
-                f"拉取近 {HISTORY_DAYS} 天文章（需直连微信，勿走本机 MITM 代理）。"
+                "用未过期凭证经 getmsg 拉取历史列表；可选 7 / 30 / 90 天。"
+                "接口常漏同日后续推送：开抓包点开漏文或「补录链接」。"
+                "单篇支持 HTML / Markdown / TXT / JSON（保留微信排版）。"
             ),
             font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
             text_color=COLORS["muted"],
             anchor="w",
             justify="left",
-            wraplength=860,
-        ).grid(row=1, column=0, columnspan=3, sticky="ew", padx=18, pady=(0, 10))
+            wraplength=720,
+        ).grid(row=1, column=0, columnspan=4, sticky="ew", padx=18, pady=(0, 10))
 
         ctk.CTkLabel(
             panel,
@@ -629,31 +696,48 @@ class CertificateApp(ctk.CTk):
         self.hist_account_menu.grid(row=2, column=1, sticky="ew", padx=(0, 10), pady=6)
         self.hist_account_menu.set("（暂无有效凭证）")
 
+        self.hist_range_menu = ctk.CTkOptionMenu(
+            panel,
+            values=HISTORY_RANGE_LABELS,
+            width=110,
+            height=36,
+            corner_radius=10,
+            fg_color=COLORS["card"],
+            button_color=COLORS["border"],
+            button_hover_color="#3a4a5e",
+            text_color=COLORS["text"],
+            font=ctk.CTkFont(family="Microsoft YaHei UI", size=13),
+            dropdown_font=ctk.CTkFont(family="Microsoft YaHei UI", size=13),
+            command=self._on_history_range_change,
+        )
+        self.hist_range_menu.set(label_for_days(self._history_days))
+        self.hist_range_menu.grid(row=2, column=2, sticky="e", padx=(0, 10), pady=6)
+
         self.hist_fetch_btn = ctk.CTkButton(
             panel,
-            text=f"拉取近{HISTORY_DAYS}天",
-            width=130,
+            text=self._fetch_btn_label(),
+            width=120,
             height=36,
             corner_radius=10,
             fg_color=COLORS["accent"],
             hover_color=COLORS["accent_hover"],
-            text_color="#0b1412",
+            text_color="#052e16",
             font=ctk.CTkFont(family="Microsoft YaHei UI", size=13, weight="bold"),
             command=self.start_history_fetch,
         )
-        self.hist_fetch_btn.grid(row=2, column=2, sticky="e", padx=(0, 18), pady=6)
+        self.hist_fetch_btn.grid(row=2, column=3, sticky="e", padx=(0, 18), pady=6)
 
         action_row = ctk.CTkFrame(panel, fg_color="transparent")
-        action_row.grid(row=3, column=0, columnspan=3, sticky="ew", padx=18, pady=(4, 14))
+        action_row.grid(row=3, column=0, columnspan=4, sticky="ew", padx=18, pady=(4, 14))
 
         self.hist_status = ctk.CTkLabel(
             action_row,
-            text="请选择凭证未过期的公众号后点击拉取。",
+            text="请选择凭证未过期的公众号与时间范围后点击拉取。",
             text_color=COLORS["muted"],
             font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
             anchor="w",
             justify="left",
-            wraplength=420,
+            wraplength=360,
         )
         self.hist_status.pack(side="left", fill="x", expand=True)
 
@@ -703,6 +787,17 @@ class CertificateApp(ctk.CTk):
             text_color=COLORS["muted"],
             font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
         ).pack(side="right", padx=(12, 0))
+
+        ctk.CTkButton(
+            action_row,
+            text="补录链接",
+            width=80,
+            height=30,
+            corner_radius=8,
+            fg_color=COLORS["border"],
+            hover_color="#3a4a5e",
+            command=self.manual_add_article_url,
+        ).pack(side="right", padx=(8, 0))
 
         ctk.CTkButton(
             action_row,
@@ -1007,6 +1102,14 @@ class CertificateApp(ctk.CTk):
                 return aid
         return None
 
+    def _fetch_btn_label(self) -> str:
+        return f"拉取近{self._history_days}天"
+
+    def _on_history_range_change(self, value: str) -> None:
+        self._history_days = days_for_label(value)
+        if not self._history_fetching:
+            self.hist_fetch_btn.configure(text=self._fetch_btn_label())
+
     def start_history_fetch(self) -> None:
         if self._history_fetching:
             return
@@ -1037,8 +1140,12 @@ class CertificateApp(ctk.CTk):
             self.set_hist_status("正在拉取历史文章…", ok=True)
 
         self._history_fetching = True
+        self._history_cred = cred
         self.hist_fetch_btn.configure(state="disabled", text="拉取中…")
         name = str(row.get("name") or "")
+        biz = str(cred.get("__biz") or row.get("biz") or "").strip()
+        self.sightings.load()
+        sightings = self.sightings.list_for_biz(biz)
 
         def worker() -> None:
             def progress(msg: str) -> None:
@@ -1047,9 +1154,10 @@ class CertificateApp(ctk.CTk):
             try:
                 result = fetch_history_days(
                     cred,
-                    days=HISTORY_DAYS,
-                    max_pages=20,
+                    days=self._history_days,
+                    max_pages=100,
                     on_progress=progress,
+                    sightings=sightings,
                 )
             except Exception as exc:  # noqa: BLE001
                 result = {"ok": False, "error": str(exc), "articles": []}
@@ -1059,7 +1167,7 @@ class CertificateApp(ctk.CTk):
 
     def _on_history_done(self, account_name: str, result: dict[str, Any]) -> None:
         self._history_fetching = False
-        self.hist_fetch_btn.configure(state="normal", text=f"拉取近{HISTORY_DAYS}天")
+        self.hist_fetch_btn.configure(state="normal", text=self._fetch_btn_label())
         articles = list(result.get("articles") or [])
         self._history_articles = articles
         self._history_account_name = account_name
@@ -1073,10 +1181,11 @@ class CertificateApp(ctk.CTk):
             )
             return
         pages = result.get("pages") or 0
-        self.set_hist_status(
-            f"「{account_name}」近 {HISTORY_DAYS} 天共 {len(articles)} 篇（请求 {pages} 页）",
-            ok=True,
-        )
+        warn = str(result.get("warning") or "").strip()
+        msg = f"「{account_name}」近 {self._history_days} 天共 {len(articles)} 篇（请求 {pages} 页）"
+        if warn:
+            msg = f"{msg} · {warn}"
+        self.set_hist_status(msg, ok=True)
 
     def _render_history_text(self) -> tuple[str, str]:
         """Return (format_label, rendered text)."""
@@ -1086,7 +1195,7 @@ class CertificateApp(ctk.CTk):
             self._history_articles,
             fmt=key,
             account_name=self._history_account_name,
-            days=HISTORY_DAYS,
+            days=self._history_days,
         )
         return label, text
 
@@ -1116,6 +1225,14 @@ class CertificateApp(ctk.CTk):
             when = art.get("publish_at") or ""
             digest = (art.get("digest") or "")[:80]
             link = art.get("link") or ""
+            source = str(art.get("source") or "getmsg")
+            source_tag = {
+                "getmsg": "",
+                "mitm": " · 抓包补全",
+                "mitm_getmsg": " · 抓包补全",
+                "manual": " · 补录",
+                "sighting": " · 补全",
+            }.get(source, f" · {source}" if source != "getmsg" else "")
 
             ctk.CTkLabel(
                 card,
@@ -1127,7 +1244,7 @@ class CertificateApp(ctk.CTk):
                 wraplength=700,
             ).grid(row=0, column=0, sticky="w", padx=14, pady=(12, 2))
 
-            meta = when + (f"  ·  {digest}" if digest else "")
+            meta = when + (f"  ·  {digest}" if digest else "") + source_tag
             ctk.CTkLabel(
                 card,
                 text=meta or link[:72],
@@ -1144,24 +1261,53 @@ class CertificateApp(ctk.CTk):
             ctk.CTkButton(
                 actions,
                 text="打开",
-                width=64,
+                width=56,
                 height=28,
                 corner_radius=8,
                 fg_color=COLORS["accent"],
                 hover_color=COLORS["accent_hover"],
-                text_color="#0b1412",
+                text_color="#052e16",
                 command=lambda u=link: self._open_url(u),
             ).pack(side="left", padx=(0, 6))
 
             ctk.CTkButton(
                 actions,
                 text="复制链接",
-                width=80,
+                width=72,
                 height=28,
                 corner_radius=8,
                 fg_color=COLORS["border"],
                 hover_color="#3a4a5e",
                 command=lambda u=link: self._copy_text(u, "已复制链接"),
+            ).pack(side="left", padx=(0, 6))
+
+            fmt_menu = ctk.CTkOptionMenu(
+                actions,
+                values=ARTICLE_EXPORT_LABELS,
+                width=108,
+                height=28,
+                corner_radius=8,
+                fg_color=COLORS["bg"],
+                button_color=COLORS["border"],
+                button_hover_color="#3a4a5e",
+                text_color=COLORS["text"],
+                font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
+                dropdown_font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
+            )
+            fmt_menu.set("Markdown")
+            fmt_menu.pack(side="left", padx=(0, 6))
+
+            ctk.CTkButton(
+                actions,
+                text="导出",
+                width=64,
+                height=28,
+                corner_radius=8,
+                fg_color=COLORS["border"],
+                hover_color="#3a4a5e",
+                command=lambda a=art, m=fmt_menu: self.export_article(
+                    a, fmt=format_key_for_article_label(m.get())
+                ),
             ).pack(side="left")
 
     def _copy_text(self, text: str, ok_msg: str) -> None:
@@ -1193,7 +1339,7 @@ class CertificateApp(ctk.CTk):
         ext = extension_for_label(label)
         default_name = default_export_filename(
             account_name=self._history_account_name,
-            days=HISTORY_DAYS,
+            days=self._history_days,
             ext=ext,
         )
         initial_dir = str((self.root_dir / "data").resolve())
@@ -1221,6 +1367,290 @@ class CertificateApp(ctk.CTk):
             )
         except Exception as exc:
             self.set_hist_status(f"导出失败: {exc}", ok=False)
+
+    def _ask_article_url_dialog(self) -> str | None:
+        """Themed modal for补录链接 — matches app COLORS (not system simpledialog)."""
+        result: dict[str, str | None] = {"url": None}
+
+        dlg = ctk.CTkToplevel(self)
+        dlg.title("补录文章链接")
+        dlg.configure(fg_color=COLORS["bg"])
+        dlg.geometry("520x260")
+        dlg.minsize(480, 240)
+        dlg.transient(self)
+        dlg.grab_set()
+        dlg.resizable(False, False)
+
+        # Center over parent
+        try:
+            self.update_idletasks()
+            x = self.winfo_rootx() + (self.winfo_width() - 520) // 2
+            y = self.winfo_rooty() + (self.winfo_height() - 260) // 2
+            dlg.geometry(f"+{max(0, x)}+{max(0, y)}")
+        except Exception:
+            pass
+
+        card = ctk.CTkFrame(
+            dlg,
+            fg_color=COLORS["panel"],
+            corner_radius=16,
+            border_width=1,
+            border_color=COLORS["border"],
+        )
+        card.pack(fill="both", expand=True, padx=16, pady=16)
+        card.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            card,
+            text="补录文章链接",
+            font=ctk.CTkFont(family="Microsoft YaHei UI", size=16, weight="bold"),
+            text_color=COLORS["text"],
+            anchor="w",
+        ).grid(row=0, column=0, sticky="ew", padx=18, pady=(16, 4))
+
+        ctk.CTkLabel(
+            card,
+            text="粘贴 getmsg 漏掉的公众号文章链接，将合并进当前列表。",
+            font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
+            text_color=COLORS["muted"],
+            anchor="w",
+            justify="left",
+            wraplength=440,
+        ).grid(row=1, column=0, sticky="ew", padx=18, pady=(0, 10))
+
+        entry = ctk.CTkEntry(
+            card,
+            height=40,
+            corner_radius=10,
+            border_color=COLORS["border"],
+            fg_color=COLORS["card"],
+            text_color=COLORS["text"],
+            placeholder_text="https://mp.weixin.qq.com/s/…",
+            font=ctk.CTkFont(family="Consolas", size=13),
+        )
+        entry.grid(row=2, column=0, sticky="ew", padx=18, pady=(0, 8))
+        entry.focus_set()
+
+        err_lbl = ctk.CTkLabel(
+            card,
+            text="",
+            font=ctk.CTkFont(family="Microsoft YaHei UI", size=11),
+            text_color=COLORS["danger"],
+            anchor="w",
+        )
+        err_lbl.grid(row=3, column=0, sticky="ew", padx=18, pady=(0, 4))
+
+        btns = ctk.CTkFrame(card, fg_color="transparent")
+        btns.grid(row=4, column=0, sticky="e", padx=18, pady=(8, 16))
+
+        def close_cancel() -> None:
+            result["url"] = None
+            dlg.grab_release()
+            dlg.destroy()
+
+        def confirm() -> None:
+            raw = (entry.get() or "").strip()
+            if not raw:
+                err_lbl.configure(text="请粘贴文章链接")
+                return
+            if "mp.weixin.qq.com" not in raw:
+                err_lbl.configure(text="请输入微信公众号文章链接（mp.weixin.qq.com）")
+                return
+            result["url"] = raw
+            dlg.grab_release()
+            dlg.destroy()
+
+        ctk.CTkButton(
+            btns,
+            text="取消",
+            width=88,
+            height=34,
+            corner_radius=10,
+            fg_color=COLORS["border"],
+            hover_color="#3a4a5e",
+            text_color=COLORS["text"],
+            font=ctk.CTkFont(family="Microsoft YaHei UI", size=13),
+            command=close_cancel,
+        ).pack(side="left", padx=(0, 8))
+
+        ctk.CTkButton(
+            btns,
+            text="补录",
+            width=96,
+            height=34,
+            corner_radius=10,
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            text_color="#052e16",
+            font=ctk.CTkFont(family="Microsoft YaHei UI", size=13, weight="bold"),
+            command=confirm,
+        ).pack(side="left")
+
+        dlg.protocol("WM_DELETE_WINDOW", close_cancel)
+        entry.bind("<Return>", lambda _e: confirm())
+        entry.bind("<Escape>", lambda _e: close_cancel())
+
+        self.wait_window(dlg)
+        return result["url"]
+
+    def manual_add_article_url(self) -> None:
+        """补录一篇 getmsg 漏掉的文章（常见：同日晚些推送）。"""
+        account_id = self._selected_history_account_id()
+        row = self.store.get(account_id) if account_id else None
+        biz = ""
+        if row:
+            cred = row.get("credentials") or {}
+            biz = str(cred.get("__biz") or row.get("biz") or "").strip()
+
+        url = self._ask_article_url_dialog()
+        if not url:
+            return
+
+        self.set_hist_status("正在读取补录文章标题…", ok=True)
+        cred = dict(self._history_cred or (row.get("credentials") if row else {}) or {})
+
+        def worker() -> None:
+            try:
+                art = fetch_and_parse_article(url, cred=cred or None)
+                sighting = {
+                    "title": art.get("title") or "",
+                    "link": art.get("link") or url,
+                    "publish_ts": int(art.get("publish_ts") or 0),
+                    "publish_at": art.get("publish_at") or "",
+                    "__biz": biz,
+                    "source": "manual",
+                    "digest": "",
+                }
+                self.sightings.upsert(sighting)
+                err = ""
+            except Exception as exc:  # noqa: BLE001
+                # Still save bare URL so merge can keep it
+                self.sightings.upsert(
+                    {
+                        "title": "(补录，待读正文)",
+                        "link": url,
+                        "__biz": biz,
+                        "source": "manual",
+                        "publish_ts": 0,
+                    }
+                )
+                art = {"title": "(补录，待读正文)", "link": url}
+                err = str(exc)
+            self.after(0, lambda: self._on_manual_add_done(art, err))
+
+        threading.Thread(target=worker, name="schinza-manual-add", daemon=True).start()
+
+    def _on_manual_add_done(self, art: dict[str, Any], err: str) -> None:
+        title = art.get("title") or "(无标题)"
+        if err:
+            self.set_hist_status(
+                f"已补录链接（正文暂读失败：{err}）。请再点「拉取近{self._history_days}天」合并进列表。",
+                ok=False,
+            )
+        else:
+            self.set_hist_status(
+                f"已补录「{title}」。再点「拉取近{self._history_days}天」即可合并进列表。",
+                ok=True,
+            )
+        # Soft-merge into current list without full refetch
+        link = str(art.get("link") or "")
+        if link:
+            exists = any(
+                (a.get("link") == link)
+                or (
+                    a.get("identity")
+                    and a.get("identity") == art.get("identity")
+                )
+                for a in self._history_articles
+            )
+            if not exists:
+                row = {
+                    "title": art.get("title") or "(无标题)",
+                    "link": link,
+                    "digest": "",
+                    "publish_ts": int(art.get("publish_ts") or 0),
+                    "publish_at": art.get("publish_at") or "",
+                    "source": "manual",
+                    "identity": art.get("identity") or link,
+                }
+                self._history_articles.insert(0, row)
+                self._history_articles.sort(
+                    key=lambda a: int(a.get("publish_ts") or 0), reverse=True
+                )
+                self._render_history_list()
+
+    def export_article(self, art: dict[str, Any], *, fmt: str) -> None:
+        if self._article_exporting:
+            self.set_hist_status("正在导出另一篇文章，请稍候…", ok=False)
+            return
+        link = str(art.get("link") or "").strip()
+        if not link:
+            self.set_hist_status("该条目没有链接，无法导出正文", ok=False)
+            return
+        raw = (fmt or "markdown").strip()
+        if raw in ARTICLE_EXPORT_LABELS:
+            fmt_key = format_key_for_article_label(raw)
+        else:
+            fmt_key = raw.lower()
+            if fmt_key == "md":
+                fmt_key = "markdown"
+            if fmt_key == "text":
+                fmt_key = "txt"
+        if fmt_key not in ("html", "markdown", "txt", "json"):
+            fmt_key = "markdown"
+        title = str(art.get("title") or "article")
+        safe = re.sub(r'[\\/:*?"<>|]+', "_", title)[:48] or "article"
+        ext = extension_for_article_format(fmt_key)
+        label = ARTICLE_EXPORT_FORMATS.get(fmt_key, fmt_key.upper())
+        initial_dir = str((self.root_dir / "data" / "exports").resolve())
+        Path(initial_dir).mkdir(parents=True, exist_ok=True)
+        path_str = filedialog.asksaveasfilename(
+            parent=self,
+            title=f"导出文章为 {label}",
+            initialdir=initial_dir,
+            initialfile=f"{safe}.{ext}",
+            defaultextension=f".{ext}",
+            filetypes=[
+                (label, f"*.{ext}"),
+                ("所有文件", "*.*"),
+            ],
+        )
+        if not path_str:
+            return
+
+        self._article_exporting = True
+        self.set_hist_status(f"正在读取正文并导出 {label}…", ok=True)
+        cred = dict(self._history_cred or {})
+
+        def worker() -> None:
+            try:
+                parsed = fetch_and_parse_article(link, cred=cred or None)
+                if not parsed.get("publish_at") and art.get("publish_at"):
+                    parsed["publish_at"] = art.get("publish_at")
+                if not parsed.get("publish_ts") and art.get("publish_ts"):
+                    parsed["publish_ts"] = art.get("publish_ts")
+                text = render_article_export(parsed, fmt_key)
+                path = Path(path_str)
+                path.write_text(text, encoding="utf-8")
+                err = ""
+            except Exception as exc:  # noqa: BLE001
+                path = Path(path_str)
+                err = str(exc)
+            self.after(
+                0,
+                lambda: self._on_article_export_done(path if not err else None, err, ext),
+            )
+
+        threading.Thread(target=worker, name="schinza-article-export", daemon=True).start()
+
+    def _on_article_export_done(
+        self, path: Path | None, err: str, ext: str
+    ) -> None:
+        self._article_exporting = False
+        if err or path is None:
+            self.set_hist_status(f"导出失败：{err or '未知错误'}", ok=False)
+            return
+        self.set_hist_status(f"已导出 {ext.upper()} → {path}", ok=True)
 
     # ── tick / lifecycle ──────────────────────────────────────────────
 

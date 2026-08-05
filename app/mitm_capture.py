@@ -85,6 +85,9 @@ class MitmCaptureService:
 
     def _thread_main(self, confdir: Path) -> None:
         os.environ["SCHINZA_CAPTURE_INBOX"] = str(self.inbox)
+        os.environ["SCHINZA_SIGHTINGS"] = str(
+            self.app_root / "data" / "article_sightings.json"
+        )
         try:
             from mitmproxy.options import Options
             from mitmproxy.tools.dump import DumpMaster
