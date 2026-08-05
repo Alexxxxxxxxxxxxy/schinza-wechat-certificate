@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all
 
-datas = [('mitmproxy-ca.pem', '.'), ('app\\mitm_addon.py', 'app'), ('mitmproxy-ca-cert.cer', '.')]
+datas = [('mitmproxy-ca.pem', '.'), ('app\\mitm_addon.py', 'app'), ('assets\\schinza.ico', 'assets'), ('assets\\logo.png', 'assets'), ('assets\\logo-128.png', 'assets'), ('assets\\logo-256.png', 'assets'), ('mitmproxy-ca-cert.cer', '.')]
 binaries = [('C:\\Users\\MR\\.conda\\envs\\schinza\\Library\\bin\\libssl-3-x64.dll', '.'), ('C:\\Users\\MR\\.conda\\envs\\schinza\\Library\\bin\\libcrypto-3-x64.dll', '.')]
 hiddenimports = ['ssl', '_ssl', 'pyperclip', 'requests', 'app.mitm_addon', 'app.history_client', 'app.history_export']
 tmp_ret = collect_all('customtkinter')
@@ -34,7 +34,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='SchinzaCertificate',
+    name='Schinza',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -45,6 +45,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=['assets\\schinza.ico'],
 )
 coll = COLLECT(
     exe,
@@ -53,5 +54,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='SchinzaCertificate',
+    name='Schinza',
 )

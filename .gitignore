@@ -5,13 +5,20 @@ venv/
 dist/
 build/
 *.spec
-!SchinzaCertificate.spec
+!Schinza.spec
 *.spec.bak
+*.log
+.DS_Store
+Thumbs.db
+
+# Local runtime data (credentials / exports)
 data/*.json
 data/mitm_conf/
 data/_run_mitmdump.py
 !data/.gitkeep
-*.log
-.DS_Store
-# CA files are sensitive (private key). Keep local for packaging; do not push to public remotes.
-# mitmproxy-ca.pem / mitmproxy-ca.p12 / mitmproxy-ca-cert.*
+
+# Private CA material — do not publish keys
+mitmproxy-ca.pem
+mitmproxy-ca.p12
+mitmproxy-ca-cert.p12
+mitmproxy-ca-cert.cer

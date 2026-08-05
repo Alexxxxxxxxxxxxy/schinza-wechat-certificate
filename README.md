@@ -1,45 +1,190 @@
-# Schinza 凭证助手（Windows · 内置 MITM）
+<p align="center">
+  <img src="assets/logo.png" alt="Schinza" width="128" height="128" />
+</p>
 
-本地「抄钥匙」工具：内置 mitmproxy 抓包 + 30 分钟凭证管理 + 复制 JSON。  
-UI：CustomTkinter（墨色青绿）。
+<h1 align="center">Schinza</h1>
 
-## 发给别人怎么用
+<p align="center">
+  <strong>Windows desktop helper for WeChat Official Account credentials &amp; history</strong>
+  <br />
+  Capture short-lived MP client keys · Manage 30‑minute TTL · Fetch last‑7‑day articles · Export in multiple formats
+</p>
 
-1. 确认目录里有完整 CA（从本机 `%USERPROFILE%\.mitmproxy\` 复制）：
-   - **`mitmproxy-ca.pem`**（含私钥，抓包必须）
-   - `mitmproxy-ca-cert.p12` / `.cer`（给对方安装信任）
-2. 运行 `.\build.ps1` 得到 `dist\SchinzaCertificate\` **整个目录**（含 exe 与 libssl DLL）
-3. 打成 zip 发给对方：整个 `SchinzaCertificate` 文件夹 + `mitmproxy-ca.pem` + 证书文件
-4. 对方首次：
-   - 打开助手 → **安装 CA 证书** → **重启微信桌面**
-   - 填写公众号名称 + 文章链接 → **添加并抓包**（自动启代理 `127.0.0.1:8088`）
-   - **再**用微信桌面打开该公众号任意一篇文章 → 凭证自动入库（30 分钟）
-   - 不要只点「手动启停代理」就去开文章（未绑定公众号时不会入库）
-5. 到期点 **续约**；有效期内 **复制凭证** 粘到 Schinza 服务器
+<p align="center">
+  <a href="#license"><img src="https://img.shields.io/badge/License-MIT-3db89a?style=flat-square" alt="MIT License" /></a>
+  <a href="#requirements"><img src="https://img.shields.io/badge/Platform-Windows%2010%2F11-1a212b?style=flat-square" alt="Windows" /></a>
+  <a href="#requirements"><img src="https://img.shields.io/badge/Python-3.11%2B-3776AB?style=flat-square" alt="Python" /></a>
+  <img src="https://img.shields.io/badge/UI-CustomTkinter-222b38?style=flat-square" alt="CustomTkinter" />
+</p>
 
-注意：仅有 `mitmproxy-ca-cert.p12`（公钥）不够启动代理；必须带上 `mitmproxy-ca.pem`。
+---
 
-## 谁需要 MITM？
+## Overview
 
-| 角色 | 需要？ |
-|------|--------|
-| 抓凭证的电脑（本助手） | **要**（内置代理 + 安装随包 CA） |
-| Schinza 服务器 | **不要**（只用已保存的钥匙调 getmsg） |
+**Schinza** is an open-source Windows desktop tool that helps operators work with WeChat Official Accounts (公众号) locally:
 
-随包 CA（`mitmproxy-ca-cert.p12`）用于开箱一致；**不要**再让对方各自生成另一套 CA，否则和代理对不上。
+| Module | What it does |
+|--------|----------------|
+| **Credential Manager** | Install a bundled MITM CA, start a local proxy, capture `__biz` / `uin` / `key` / `pass_ticket` from WeChat Desktop, keep each account key for **30 minutes** with renew / copy JSON |
+| **History Articles** | Pick an **unexpired** account and pull the last **7 days** of articles via the same `profile_ext?action=getmsg` flow used by Schinza server tooling |
+| **Export** | JSON · CSV (Excel) · TSV · Markdown · plain links · title+link text — copy to clipboard or save to disk |
 
-## 开发运行
+All credentials and exports stay on the machine under `data/`. Nothing is uploaded by this app.
+
+> **中文摘要**：Schinza 是开源的 Windows 桌面助手，用于本机捕获微信公众号短暂凭证、管理 30 分钟有效期，并拉取近 7 天历史文章，支持多种格式导出。凭证仅保存在本地。
+
+---
+
+## Screenshots / UI
+
+The app uses a dual-tab layout:
+
+1. **凭证管理** — CA install, proxy, add account & capture, account cards with countdown  
+2. **历史文章** — select active credential → fetch → browse / export  
+
+Window and executable icons use the Schinza mark in `assets/`.
+
+---
+
+## Requirements
+
+- Windows 10 / 11 (x64)
+- WeChat **Desktop** (for credential capture)
+- Python **3.11+** (development / build)
+- For packaging: OpenSSL DLLs from your Python/conda env (`libssl` / `libcrypto`)
+
+---
+
+## Quick start (from source)
 
 ```powershell
-cd certificate
+git clone https://github.com/<your-org>/Schinza.git
+cd Schinza
+
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-# 确认 mitmproxy-ca-cert.p12 在本目录
+
+# Optional: copy a full mitmproxy CA (includes private key) for packaging/capture
+# Prefer: %USERPROFILE%\.mitmproxy\mitmproxy-ca.pem
+
 python main.py
 ```
 
-## 安全说明
+### First-time capture flow
 
-- 凭证只存本机 `data\accounts.json`
-- 分发的 p12 含抓包用 CA，仅限你们内部使用；勿公开发布
+1. Open **凭证管理** → **安装 CA 证书** → restart WeChat Desktop  
+2. Enter account name + any article URL of that OA → **添加并抓包**  
+3. In WeChat Desktop, open any article from that account  
+4. Credentials appear on the card (30‑minute TTL). Use **续约** when expired  
+5. Switch to **历史文章**, select the account → **拉取近7天** → export as needed  
+
+> Tip: Prefer **添加并抓包** over starting the proxy alone. Binding an account first avoids orphan captures.
+
+---
+
+## Build Windows release
+
+```powershell
+.\build.ps1
+```
+
+Output (onedir — distribute the **whole folder**):
+
+```text
+dist\Schinza\Schinza.exe
+```
+
+Do **not** ship a lone `.exe` without `_internal/` and the OpenSSL DLLs next to it.
+
+Private CA material (`mitmproxy-ca.pem` with key) is required to build a capture-capable binary. **Never commit private keys** to a public repository.
+
+---
+
+## Project layout
+
+```text
+Schinza/
+├── assets/                 # Brand logo & Windows icon
+├── app/
+│   ├── ui.py               # CustomTkinter UI (tabs, cards, export)
+│   ├── mitm_capture.py     # In-process mitmproxy + system proxy
+│   ├── mitm_addon.py       # Credential capture addon
+│   ├── history_client.py   # getmsg history client
+│   ├── history_export.py   # Multi-format export
+│   ├── credentials.py      # Parse / validate credential blobs
+│   ├── store.py            # Local accounts.json (30 min TTL)
+│   └── ca_setup.py         # Prepare / install CA
+├── tests/
+├── main.py
+├── build.ps1
+├── requirements.txt
+├── LICENSE
+└── README.md
+```
+
+---
+
+## Export formats
+
+| Format | Use case |
+|--------|----------|
+| JSON | Full structured payload |
+| CSV (Excel) | Spreadsheet / Excel (UTF-8 BOM) |
+| TSV | Tab-separated pipelines |
+| Markdown | Docs / notes |
+| Plain links TXT | Link-only lists |
+| Title + link TXT | Human-readable lists |
+
+---
+
+## Security & ethics
+
+- Credentials are **short-lived** and stored only in `data/accounts.json` on disk.  
+- History requests **bypass the system MITM proxy** (`trust_env=False`) and talk to WeChat directly.  
+- Use only on accounts and devices you are **authorized** to operate.  
+- Respect WeChat / Tencent terms of service and applicable laws.  
+- Do not publish private CA keys, live `uin`/`key`/`pass_ticket`, or production secrets.  
+- This project is provided for legitimate operations tooling and research; authors are not responsible for misuse.
+
+---
+
+## Configuration notes
+
+| Item | Detail |
+|------|--------|
+| Proxy | `127.0.0.1:8088` when capture is running |
+| TTL | 30 minutes per credential (`app/store.py`) |
+| History window | Last 7 days (`HISTORY_DAYS` in `app/ui.py`) |
+| getmsg API | `https://mp.weixin.qq.com/mp/profile_ext?action=getmsg` |
+
+---
+
+## Development
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+python main.py
+
+# Lightweight checks
+python -c "import tests.test_credentials as t; t.test_parse_url(); print('ok')"
+```
+
+Contributions are welcome via pull requests. Please keep changes focused, avoid committing `data/*.json`, `dist/`, `.venv/`, or CA private keys.
+
+---
+
+## License
+
+This project is released under the [MIT License](LICENSE).
+
+```text
+Copyright (c) 2026 Schinza Contributors
+```
+
+---
+
+## Disclaimer
+
+Schinza is an independent open-source project. It is **not** affiliated with, endorsed by, or sponsored by Tencent or WeChat. “WeChat” and “微信” are trademarks of their respective owners.

@@ -1,4 +1,4 @@
-# Build SchinzaCertificate (onedir) — conda OpenSSL DLLs must be next to exe
+# Build Schinza (onedir) — conda OpenSSL DLLs must be next to exe
 $ErrorActionPreference = "Continue"
 Set-Location $PSScriptRoot
 
@@ -11,6 +11,9 @@ pip install -r requirements.txt
 
 if (-not (Test-Path "mitmproxy-ca.pem")) {
   Write-Error "Missing mitmproxy-ca.pem (with private key). Copy from %USERPROFILE%\.mitmproxy\"
+}
+if (-not (Test-Path "assets\schinza.ico")) {
+  Write-Error "Missing assets\schinza.ico"
 }
 
 # Discover conda OpenSSL DLLs used by this Python
@@ -38,7 +41,8 @@ $argsList = @(
   "--noconfirm", "--clean",
   "--windowed",
   "--onedir",
-  "--name", "SchinzaCertificate",
+  "--name", "Schinza",
+  "--icon", "assets\schinza.ico",
   "--paths", ".",
   "--additional-hooks-dir", "hooks",
   "--collect-all", "customtkinter",
@@ -48,9 +52,16 @@ $argsList = @(
   "--hidden-import", "ssl",
   "--hidden-import", "_ssl",
   "--hidden-import", "pyperclip",
+  "--hidden-import", "requests",
   "--hidden-import", "app.mitm_addon",
+  "--hidden-import", "app.history_client",
+  "--hidden-import", "app.history_export",
   "--add-data", "mitmproxy-ca.pem;.",
-  "--add-data", "app\mitm_addon.py;app"
+  "--add-data", "app\mitm_addon.py;app",
+  "--add-data", "assets\schinza.ico;assets",
+  "--add-data", "assets\logo.png;assets",
+  "--add-data", "assets\logo-128.png;assets",
+  "--add-data", "assets\logo-256.png;assets"
 ) + $binArgs
 
 if (Test-Path "mitmproxy-ca-cert.p12") { $argsList += @("--add-data", "mitmproxy-ca-cert.p12;.") }
@@ -59,8 +70,9 @@ if (Test-Path "mitmproxy-ca-cert.cer") { $argsList += @("--add-data", "mitmproxy
 
 $argsList += @("main.py")
 
-# Remove stale onefile that confuses users
-Remove-Item -Force "dist\SchinzaCertificate.exe" -ErrorAction SilentlyContinue
+# Remove stale artifacts that confuse users
+Remove-Item -Force "dist\Schinza.exe","dist\SchinzaCertificate.exe" -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force "dist\SchinzaCertificate" -ErrorAction SilentlyContinue
 
 $prev = $ErrorActionPreference
 $ErrorActionPreference = "Continue"
@@ -71,7 +83,7 @@ if ($pyExit -ne 0) {
   Write-Error "PyInstaller failed with exit code $pyExit"
 }
 
-$outDir = "dist\SchinzaCertificate"
+$outDir = "dist\Schinza"
 Copy-Item -Force "mitmproxy-ca.pem" "$outDir\" -ErrorAction SilentlyContinue
 Copy-Item -Force "mitmproxy-ca-cert.p12" "$outDir\" -ErrorAction SilentlyContinue
 Copy-Item -Force "mitmproxy-ca-cert.cer" "$outDir\" -ErrorAction SilentlyContinue
@@ -86,5 +98,5 @@ foreach ($dll in $dllLines) {
 }
 
 Write-Host ""
-Write-Host "Done: $PSScriptRoot\$outDir\SchinzaCertificate.exe"
-Write-Host "Zip the whole folder dist\SchinzaCertificate for others."
+Write-Host "Done: $PSScriptRoot\$outDir\Schinza.exe"
+Write-Host "Zip the whole folder dist\Schinza for distribution."

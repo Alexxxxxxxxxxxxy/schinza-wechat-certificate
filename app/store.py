@@ -107,7 +107,7 @@ class AccountStore:
                 row["expires_at"] = _iso(expires)
                 row["captured_at"] = _iso(_now())
                 row["status"] = "active"
-                if credentials.get("__biz") and not row.get("biz"):
+                if credentials.get("__biz"):
                     row["biz"] = credentials["__biz"]
                 self.save()
                 out = deepcopy(row)
@@ -145,6 +145,22 @@ class AccountStore:
         self.mark_expired_if_needed()
         row = self.get(account_id)
         return bool(row and row.get("status") == "active" and self.remaining_seconds(account_id) > 0)
+
+    def list_active_accounts(self) -> list[dict[str, Any]]:
+        self.mark_expired_if_needed()
+        with self._lock:
+            rows = []
+            for row in self._accounts:
+                if row.get("status") != "active":
+                    continue
+                exp = _parse_iso(row.get("expires_at"))
+                if exp is None or exp <= _now():
+                    continue
+                cred = row.get("credentials") or {}
+                if not (cred.get("__biz") and cred.get("uin") and cred.get("key")):
+                    continue
+                rows.append(deepcopy(row))
+            return rows
 
     def delete(self, account_id: str) -> None:
         with self._lock:
