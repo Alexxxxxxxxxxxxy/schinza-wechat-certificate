@@ -179,25 +179,27 @@ class AccountCard(ctk.CTkFrame):
         biz = (account.get("credentials") or {}).get("__biz") or account.get("biz") or "—"
         url = (account.get("article_url") or "")[:56]
 
+        # 续约始终可点：未过期也可主动刷新；等待中可再次点开文章重试
+        self.renew_btn.configure(state="normal")
+
         if status == "active" and remain > 0:
             self.timer_lbl.configure(text=_fmt_remain(remain), text_color=COLORS["ok"])
-            self.meta_lbl.configure(text=f"有效 · __biz={biz}\n{url}")
+            self.meta_lbl.configure(
+                text=f"有效 · __biz={biz}\n点「续约」可重新打开文章并刷新凭证\n{url}"
+            )
             self.copy_btn.configure(state="normal")
-            self.renew_btn.configure(state="disabled")
         elif status == "awaiting":
             self.timer_lbl.configure(text="等待凭证", text_color=COLORS["warn"])
             self.meta_lbl.configure(
-                text="等待 MITM 抓包 · 请在微信桌面打开该号任意一篇文章\n" + url
+                text="续约/抓包中 · 请在微信桌面打开文章（可再点续约重试）\n" + url
             )
             self.copy_btn.configure(state="disabled")
-            self.renew_btn.configure(state="disabled")
         else:
             self.timer_lbl.configure(text="已过期", text_color=COLORS["danger"])
             self.meta_lbl.configure(
-                text=f"点击续约后，在微信里再打开任意一篇文章刷新凭证 · __biz={biz}\n{url}"
+                text=f"已过期 · 点「续约」打开文章并重新抓取凭证 · __biz={biz}\n{url}"
             )
             self.copy_btn.configure(state="disabled")
-            self.renew_btn.configure(state="normal")
 
 
 class CertificateApp(ctk.CTk):
@@ -846,21 +848,25 @@ class CertificateApp(ctk.CTk):
         row = self.store.get(account_id)
         if not row:
             return
+        url = str(row.get("article_url") or "").strip()
+        if not url or "mp.weixin.qq.com" not in url:
+            self.set_status("该公众号没有可用的文章链接，无法续约打开", ok=False)
+            return
         if not self._ensure_proxy_for_capture():
             return
+
+        # 续约必须重新抓包，不要复用旧 inbox
+        self.mitm.clear_inbox()
         self.store.set_awaiting(account_id)
         self._pending_capture_id = account_id
         self.watcher.enable()
-        hint_biz = (
-            str(row.get("biz") or "")
-            or extract_credentials_from_url(str(row.get("article_url") or "")).get("__biz")
-            or ""
-        )
-        if self._try_apply_existing_inbox(expected_biz=hint_biz):
-            return
-        self.mitm.clear_inbox()
+
+        # 打开文章链接，便于在系统浏览器/微信中再次触发凭证流量
+        self._open_url(url)
+        name = str(row.get("name") or "")
         self.set_status(
-            "续约中：请在微信桌面再打开该公众号任意一篇文章，等待自动捕获。",
+            f"「{name}」续约中：已打开文章链接，代理已启动。"
+            "请确认在微信桌面内打开该公众号文章，等待凭证自动更新。",
             ok=True,
         )
 
