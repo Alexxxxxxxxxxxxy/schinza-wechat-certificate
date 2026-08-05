@@ -148,7 +148,7 @@ Schinza/
 - Use only on accounts and devices you are **authorized** to operate.  
 - Respect WeChat / Tencent terms of service and applicable laws.  
 - Do not publish private CA keys, live `uin`/`key`/`pass_ticket`, or production secrets.  
-- This project is provided for legitimate operations tooling and research; authors are not responsible for misuse.
+- This project is open-source only; authors are not responsible for others’ misuse or dangerous behavior (see [Disclaimer](#disclaimer)).
 
 ---
 
@@ -190,7 +190,14 @@ Copyright (c) 2026 Schinza Contributors
 
 ## Disclaimer
 
-Schinza is an independent open-source project. It is **not** affiliated with, endorsed by, or sponsored by Tencent or WeChat. “WeChat” and “微信” are trademarks of their respective owners.
+Schinza is provided **solely as open-source software** for learning, research, and legitimate self-hosted use.
+
+- By downloading, copying, modifying, or running this project, **you accept full responsibility** for your own actions and for any consequences that follow.
+- The authors and contributors are **not liable** for any loss, account ban, legal dispute, data leak, security incident, or other damage arising from use or misuse of this software.
+- **Any dangerous, abusive, illegal, or ToS-violating behavior by third parties has nothing to do with the authors.** We do not encourage, instruct, or endorse such use.
+- Schinza is an independent project and is **not** affiliated with, endorsed by, or sponsored by Tencent or WeChat. “WeChat” and “微信” are trademarks of their respective owners.
+
+**If you do not agree with these terms, do not use this software.**
 
 ---
 
