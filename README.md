@@ -5,6 +5,10 @@
 <h1 align="center">Schinza</h1>
 
 <p align="center">
+  <a href="./README.md"><b>English</b></a> · <a href="./README.zh-CN.md">中文</a>
+</p>
+
+<p align="center">
   <strong>Windows desktop helper for WeChat Official Account credentials &amp; history</strong>
   <br />
   Capture short-lived MP client keys · Manage 30‑minute TTL · Fetch last‑7‑day articles · Export in multiple formats
@@ -31,16 +35,14 @@
 
 All credentials and exports stay on the machine under `data/`. Nothing is uploaded by this app.
 
-> **中文摘要**：Schinza 是开源的 Windows 桌面助手，用于本机捕获微信公众号短暂凭证、管理 30 分钟有效期，并拉取近 7 天历史文章，支持多种格式导出。凭证仅保存在本地。
-
 ---
 
 ## Screenshots / UI
 
 The app uses a dual-tab layout:
 
-1. **凭证管理** — CA install, proxy, add account & capture, account cards with countdown  
-2. **历史文章** — select active credential → fetch → browse / export  
+1. **Credential Manager** — CA install, proxy, add account & capture, account cards with countdown  
+2. **History Articles** — select active credential → fetch → browse / export  
 
 Window and executable icons use the Schinza mark in `assets/`.
 
@@ -73,13 +75,13 @@ python main.py
 
 ### First-time capture flow
 
-1. Open **凭证管理** → **安装 CA 证书** → restart WeChat Desktop  
-2. Enter account name + any article URL of that OA → **添加并抓包**  
+1. Open **Credential Manager** → **Install CA** → restart WeChat Desktop  
+2. Enter account name + any article URL of that OA → **Add & Capture**  
 3. In WeChat Desktop, open any article from that account  
-4. Credentials appear on the card (30‑minute TTL). Use **续约** when expired  
-5. Switch to **历史文章**, select the account → **拉取近7天** → export as needed  
+4. Credentials appear on the card (30‑minute TTL). Use **Renew** when expired  
+5. Switch to **History Articles**, select the account → **Fetch last 7 days** → export as needed  
 
-> Tip: Prefer **添加并抓包** over starting the proxy alone. Binding an account first avoids orphan captures.
+> Tip: Prefer **Add & Capture** over starting the proxy alone. Binding an account first avoids orphan captures.
 
 ---
 
@@ -120,7 +122,8 @@ Schinza/
 ├── build.ps1
 ├── requirements.txt
 ├── LICENSE
-└── README.md
+├── README.md               # English (this file)
+└── README.zh-CN.md         # 中文文档
 ```
 
 ---
@@ -188,3 +191,9 @@ Copyright (c) 2026 Schinza Contributors
 ## Disclaimer
 
 Schinza is an independent open-source project. It is **not** affiliated with, endorsed by, or sponsored by Tencent or WeChat. “WeChat” and “微信” are trademarks of their respective owners.
+
+---
+
+<p align="center">
+  <a href="./README.md"><b>English</b></a> · <a href="./README.zh-CN.md">中文</a>
+</p>
