@@ -11,40 +11,58 @@
 <p align="center">
   <strong>微信公众号凭证与历史文章 Windows 桌面助手</strong>
   <br />
-  捕获短暂客户端密钥 · 管理 30 分钟有效期 · 拉取近 7 天文章 · 多格式导出
+  捕获短暂客户端密钥 · 管理 30 分钟有效期 · 拉取近 7 / 30 / 90 天历史 · 列表与正文多格式导出（HTML / Markdown / TXT / JSON）
 </p>
 
 <p align="center">
+  <a href="https://github.com/Alexxxxxxxxxxxxy/schinza-wechat-certificate/releases"><img src="https://img.shields.io/badge/下载-Releases-22C55E?style=flat-square" alt="Download" /></a>
   <a href="#开源协议"><img src="https://img.shields.io/badge/License-MIT-3db89a?style=flat-square" alt="MIT License" /></a>
   <a href="#运行环境"><img src="https://img.shields.io/badge/Platform-Windows%2010%2F11-1a212b?style=flat-square" alt="Windows" /></a>
   <a href="#运行环境"><img src="https://img.shields.io/badge/Python-3.11%2B-3776AB?style=flat-square" alt="Python" /></a>
   <img src="https://img.shields.io/badge/UI-CustomTkinter-222b38?style=flat-square" alt="CustomTkinter" />
 </p>
 
+<p align="center">
+  <b><a href="https://github.com/Alexxxxxxxxxxxxy/schinza-wechat-certificate/releases">⬇ 下载最新发行版</a></b>
+</p>
+
+---
+
+## 下载
+
+预编译 Windows 包（onedir）发布在 GitHub Releases：
+
+**https://github.com/Alexxxxxxxxxxxxy/schinza-wechat-certificate/releases**
+
+1. 打开最新 Release（如 `schinza:1.2.1`）
+2. 下载压缩包并解压**整个** `Schinza` 文件夹
+3. 运行 `Schinza.exe`（请勿只拷贝单个 `.exe`，需保留 `_internal/` 等依赖）
+
+源码仓库：[Alexxxxxxxxxxxxy/schinza-wechat-certificate](https://github.com/Alexxxxxxxxxxxxy/schinza-wechat-certificate)
+
 ---
 
 ## 项目简介
 
-**Schinza** 是一款开源的 Windows 桌面工具，帮助运营人员在本机处理微信公众号相关能力：
+**Schinza** 是一款开源 Windows 桌面工具，在本机完成公众号凭证与历史文章相关操作：
 
 | 模块 | 功能 |
 |------|------|
-| **凭证管理** | 安装随包 MITM CA、启动本地代理，从微信桌面捕获 `__biz` / `uin` / `key` / `pass_ticket`，每套凭证保留 **30 分钟**，支持续约 / 复制 JSON |
-| **历史文章** | 选择**未过期**的公众号凭证，通过与 Schinza 服务端相同的 `profile_ext?action=getmsg` 流程拉取近 **7 天**文章 |
-| **导出** | JSON · CSV（Excel）· TSV · Markdown · 纯链接 · 标题+链接 — 可复制到剪贴板或保存为文件 |
+| **凭证管理** | 安装随包 MITM CA、启动本地代理，从微信桌面捕获 `__biz` / `uin` / `key` / `pass_ticket`；每套凭证 **30 分钟**有效，支持续约 / 复制 JSON |
+| **历史文章** | 经 `profile_ext?action=getmsg` 拉取 **近 7 / 30 / 90 天**列表；微信漏掉同日后续推送时，可用抓包目击或 **补录链接** 合并 |
+| **列表导出** | JSON · CSV（Excel）· TSV · Markdown · 纯链接 · 标题+链接 |
+| **正文导出** | 单篇 **HTML**（保留微信排版）· **Markdown** · **TXT** · **JSON** |
 
-所有凭证与导出结果仅保存在本机 `data/`，应用本身不会上传任何数据。
+所有凭证与导出仅保存在本机 `data/`，应用不会上传数据。
 
 ---
 
 ## 界面说明
 
-应用采用顶部双栏切换：
+左侧栏切换（深色 slate + 绿色强调）：
 
-1. **凭证管理** — 安装 CA、代理、添加并抓包、账号卡片与倒计时  
-2. **历史文章** — 选择有效凭证 → 拉取 → 浏览 / 导出  
-
-窗口图标与可执行文件图标见 `assets/`。
+1. **凭证管理** — 安装 CA、代理、添加并抓包、倒计时卡片  
+2. **历史文章** — 选择公众号 · 时间范围 · 拉取 · 补录 · 浏览 · 导出  
 
 ---
 
@@ -60,28 +78,28 @@
 ## 快速开始（源码）
 
 ```powershell
-git clone https://github.com/<your-org>/Schinza.git
-cd Schinza
+git clone https://github.com/Alexxxxxxxxxxxxy/schinza-wechat-certificate.git
+cd schinza-wechat-certificate
 
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 
 # 可选：复制完整 mitmproxy CA（含私钥）用于抓包/打包
-# 推荐来源：%USERPROFILE%\.mitmproxy\mitmproxy-ca.pem
+# 推荐：%USERPROFILE%\.mitmproxy\mitmproxy-ca.pem
 
 python main.py
 ```
 
 ### 首次抓包流程
 
-1. 打开 **凭证管理** → **安装 CA 证书** → **重启微信桌面**  
-2. 填写公众号名称 + 该号任意一篇文章链接 → **添加并抓包**  
-3. 在微信桌面中打开该公众号任意一篇文章  
-4. 卡片上出现凭证（30 分钟有效）。过期后点 **续约**  
-5. 切换到 **历史文章**，选择该号 → **拉取近7天** → 按需导出  
+1. **凭证管理** → **安装 CA 证书** → **重启微信桌面**  
+2. 填写公众号名称 + 任意文章链接 → **添加并抓包**  
+3. 在微信桌面打开该公众号任意一篇文章  
+4. 卡片出现凭证（30 分钟）。过期后点 **续约**  
+5. **历史文章** → 选择 7 / 30 / 90 天 → **拉取** → 导出列表或单篇正文  
 
-> 提示：请优先使用「添加并抓包」，不要只开代理就去打开文章，以免抓到未绑定公众号的孤儿凭证。
+> 请优先「添加并抓包」。若 getmsg 漏掉同日文章，可在抓包开启时点开该文，或使用「补录链接」。
 
 ---
 
@@ -91,64 +109,57 @@ python main.py
 .\build.ps1
 ```
 
-输出（onedir — 请分发**整个文件夹**）：
-
 ```text
 dist\Schinza\Schinza.exe
 ```
 
-请勿只拷贝单个 `.exe`（缺少 `_internal/` 与旁路 OpenSSL DLL 将无法运行）。
-
-构建可抓包的二进制需要带私钥的 CA（`mitmproxy-ca.pem`）。**切勿将私钥提交到公开仓库。**
+请分发**整个** `dist\Schinza` 文件夹。构建可抓包二进制需要带私钥的 CA — **切勿将私钥提交到公开仓库**。
 
 ---
 
 ## 目录结构
 
 ```text
-Schinza/
-├── assets/                 # 品牌 Logo 与 Windows 图标
+├── assets/
 ├── app/
-│   ├── ui.py               # CustomTkinter 界面
-│   ├── mitm_capture.py     # 进程内 mitmproxy + 系统代理
-│   ├── mitm_addon.py       # 凭证捕获插件
-│   ├── history_client.py   # getmsg 历史拉取
-│   ├── history_export.py   # 多格式导出
-│   ├── credentials.py      # 凭证解析 / 校验
-│   ├── store.py            # 本地 accounts.json（30 分钟 TTL）
-│   └── ca_setup.py         # CA 准备与安装
+│   ├── ui.py                 # CustomTkinter 界面
+│   ├── mitm_capture.py       # 进程内 mitmproxy
+│   ├── mitm_addon.py         # 凭证 + 文章目击
+│   ├── history_client.py     # getmsg + 补录合并
+│   ├── history_ranges.py     # 7 / 30 / 90 天
+│   ├── history_export.py     # 列表导出
+│   ├── article_reader.py     # 正文 HTML / MD / TXT / JSON
+│   ├── sightings.py          # 补录 / 抓包目击存储
+│   ├── credentials.py
+│   ├── store.py
+│   └── ca_setup.py
 ├── tests/
 ├── main.py
 ├── build.ps1
 ├── requirements.txt
 ├── LICENSE
-├── README.md               # English docs
-└── README.zh-CN.md         # 中文文档（本文件）
+├── README.md
+└── README.zh-CN.md
 ```
 
 ---
 
 ## 导出格式
 
-| 格式 | 适用场景 |
-|------|----------|
-| JSON | 完整结构化数据 |
-| CSV（Excel） | 表格 / Excel（含 UTF-8 BOM） |
-| TSV | 制表符分隔流水线 |
-| Markdown | 文档 / 笔记 |
-| 纯链接 TXT | 仅链接列表 |
-| 标题+链接 TXT | 可读列表 |
+**历史列表：** JSON · CSV · TSV · Markdown · 纯链接 · 标题+链接  
+
+**单篇正文：** HTML（规范化微信排版）· Markdown · TXT · JSON  
 
 ---
 
 ## 安全与使用规范
 
-- 凭证为**短时有效**，仅保存在本机 `data/accounts.json`。  
-- 历史拉取会**绕过系统 MITM 代理**（`trust_env=False`），直连微信。  
-- 仅在您**有权操作**的账号与设备上使用。  
-- 请遵守微信 / 腾讯服务条款及相关法律法规。  
-- 不要公开私有 CA 密钥，以及真实的 `uin` / `key` / `pass_ticket` 等生产密钥。  
-- 本项目仅作开源提供；他人的滥用或危险行为与作者无关（详见[免责声明](#免责声明)）。
+- 凭证短时有效，仅存本机 `data/accounts.json`  
+- 历史拉取绕过系统 MITM 代理（`trust_env=False`）  
+- 仅在您有权操作的账号与设备上使用  
+- 遵守微信 / 腾讯服务条款及相关法律  
+- 勿公开私有 CA 密钥或真实 `uin` / `key` / `pass_ticket`  
+- 他人滥用与作者无关（见[免责声明](#免责声明)）
 
 ---
 
@@ -157,9 +168,10 @@ Schinza/
 | 项 | 说明 |
 |----|------|
 | 代理 | 抓包运行时为 `127.0.0.1:8088` |
-| 有效期 | 每套凭证 30 分钟（`app/store.py`） |
-| 历史窗口 | 近 7 天（`app/ui.py` 中 `HISTORY_DAYS`） |
+| 有效期 | 每套凭证 30 分钟 |
+| 历史窗口 | 近 7 / 30 / 90 天 |
 | getmsg 接口 | `https://mp.weixin.qq.com/mp/profile_ext?action=getmsg` |
+| 发行版下载 | https://github.com/Alexxxxxxxxxxxxy/schinza-wechat-certificate/releases |
 
 ---
 
@@ -169,12 +181,9 @@ Schinza/
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
 python main.py
-
-# 轻量自检
-python -c "import tests.test_credentials as t; t.test_parse_url(); print('ok')"
 ```
 
-欢迎通过 Pull Request 贡献代码。请保持改动聚焦，勿提交 `data/*.json`、`dist/`、`.venv/` 或 CA 私钥。
+欢迎 PR。请勿提交 `data/*.json`、`dist/`、`.venv/` 或 CA 私钥。
 
 ---
 
@@ -190,17 +199,21 @@ Copyright (c) 2026 Schinza Contributors
 
 ## 免责声明
 
-本项目**仅作为开源软件**提供，供学习、研究与合法的自用场景参考。
+本项目**仅作为开源软件**提供，供学习、研究与合法自用参考。
 
-- 任何人下载、复制、修改或使用本项目，即视为已充分了解相关风险，并**自行承担全部责任与后果**。
-- 作者及贡献者**不对**因使用或滥用本软件导致的任何损失、账号封禁、法律纠纷、数据泄露、安全事故或其他损害承担责任。
-- **其他人实施的危险、滥用、违法或违反平台规则的行为，与作者无关。** 本项目不鼓励、不指导、不支持此类用途。
-- Schinza 为独立开源项目，**与**腾讯或微信**无任何关联、背书或赞助关系**。「WeChat」「微信」为其各自权利人的商标。
+- 下载、复制、修改或使用即视为已了解风险，并**自行承担全部责任与后果**。
+- 作者及贡献者**不对**因使用或滥用导致的损失、封禁、纠纷、泄露等承担责任。
+- **其他人实施的危险、滥用、违法或违规行为，与作者无关。**
+- Schinza **与**腾讯或微信**无关联、背书或赞助关系**。
 
-**若您不同意以上声明，请勿使用本软件。**
+**若不同意以上声明，请勿使用本软件。**
 
 ---
 
 <p align="center">
-  <a href="./README.md">English</a> · <a href="./README.zh-CN.md"><b>中文</b></a>
+  <a href="https://github.com/Alexxxxxxxxxxxxy/schinza-wechat-certificate/releases"><b>下载</b></a>
+  ·
+  <a href="./README.md">English</a>
+  ·
+  <a href="./README.zh-CN.md"><b>中文</b></a>
 </p>

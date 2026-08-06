@@ -11,40 +11,58 @@
 <p align="center">
   <strong>Windows desktop helper for WeChat Official Account credentials &amp; history</strong>
   <br />
-  Capture short-lived MP client keys · Manage 30‑minute TTL · Fetch last‑7‑day articles · Export in multiple formats
+  Capture short-lived MP keys · 30‑minute TTL · Fetch 7 / 30 / 90‑day history · Export list &amp; full articles (HTML / Markdown / TXT / JSON)
 </p>
 
 <p align="center">
+  <a href="https://github.com/Alexxxxxxxxxxxxy/schinza-wechat-certificate/releases"><img src="https://img.shields.io/badge/Download-Releases-22C55E?style=flat-square" alt="Download" /></a>
   <a href="#license"><img src="https://img.shields.io/badge/License-MIT-3db89a?style=flat-square" alt="MIT License" /></a>
   <a href="#requirements"><img src="https://img.shields.io/badge/Platform-Windows%2010%2F11-1a212b?style=flat-square" alt="Windows" /></a>
   <a href="#requirements"><img src="https://img.shields.io/badge/Python-3.11%2B-3776AB?style=flat-square" alt="Python" /></a>
   <img src="https://img.shields.io/badge/UI-CustomTkinter-222b38?style=flat-square" alt="CustomTkinter" />
 </p>
 
+<p align="center">
+  <b><a href="https://github.com/Alexxxxxxxxxxxxy/schinza-wechat-certificate/releases">⬇ Download latest release</a></b>
+</p>
+
+---
+
+## Download
+
+Prebuilt Windows packages (onedir) are published on GitHub Releases:
+
+**https://github.com/Alexxxxxxxxxxxxy/schinza-wechat-certificate/releases**
+
+1. Open the latest release (e.g. `schinza:1.2.1`)
+2. Download the zip / asset and extract the **whole** `Schinza` folder
+3. Run `Schinza.exe` (do not ship a lone `.exe` without `_internal/`)
+
+Source repository: [Alexxxxxxxxxxxxy/schinza-wechat-certificate](https://github.com/Alexxxxxxxxxxxxy/schinza-wechat-certificate)
+
 ---
 
 ## Overview
 
-**Schinza** is an open-source Windows desktop tool that helps operators work with WeChat Official Accounts (公众号) locally:
+**Schinza** is an open-source Windows desktop tool for local WeChat Official Account (公众号) ops:
 
 | Module | What it does |
 |--------|----------------|
-| **Credential Manager** | Install a bundled MITM CA, start a local proxy, capture `__biz` / `uin` / `key` / `pass_ticket` from WeChat Desktop, keep each account key for **30 minutes** with renew / copy JSON |
-| **History Articles** | Pick an **unexpired** account and pull the last **7 days** of articles via the same `profile_ext?action=getmsg` flow used by Schinza server tooling |
-| **Export** | JSON · CSV (Excel) · TSV · Markdown · plain links · title+link text — copy to clipboard or save to disk |
+| **Credential Manager** | Install bundled MITM CA, start local proxy, capture `__biz` / `uin` / `key` / `pass_ticket` from WeChat Desktop; **30‑minute TTL** with renew / copy JSON |
+| **History Articles** | Pull history via `profile_ext?action=getmsg` for **7 / 30 / 90 days**; merge MITM sightings or **manual URL补录** when WeChat omits same‑day later pushes |
+| **List export** | JSON · CSV (Excel) · TSV · Markdown · plain links · title+link |
+| **Article export** | Per-article **HTML** (WeChat layout normalized) · **Markdown** · **TXT** · **JSON** |
 
-All credentials and exports stay on the machine under `data/`. Nothing is uploaded by this app.
+All credentials and exports stay under local `data/`. Nothing is uploaded by this app.
 
 ---
 
-## Screenshots / UI
+## UI
 
-The app uses a dual-tab layout:
+Sidebar navigation (dark slate + green accent):
 
-1. **Credential Manager** — CA install, proxy, add account & capture, account cards with countdown  
-2. **History Articles** — select active credential → fetch → browse / export  
-
-Window and executable icons use the Schinza mark in `assets/`.
+1. **Credential Manager** — CA install, proxy, add & capture, countdown cards  
+2. **History Articles** — account · time range · fetch ·补录 · browse · export  
 
 ---
 
@@ -60,14 +78,14 @@ Window and executable icons use the Schinza mark in `assets/`.
 ## Quick start (from source)
 
 ```powershell
-git clone https://github.com/<your-org>/Schinza.git
-cd Schinza
+git clone https://github.com/Alexxxxxxxxxxxxy/schinza-wechat-certificate.git
+cd schinza-wechat-certificate
 
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 
-# Optional: copy a full mitmproxy CA (includes private key) for packaging/capture
+# Optional: full mitmproxy CA (with private key) for capture/packaging
 # Prefer: %USERPROFILE%\.mitmproxy\mitmproxy-ca.pem
 
 python main.py
@@ -75,13 +93,13 @@ python main.py
 
 ### First-time capture flow
 
-1. Open **Credential Manager** → **Install CA** → restart WeChat Desktop  
-2. Enter account name + any article URL of that OA → **Add & Capture**  
-3. In WeChat Desktop, open any article from that account  
-4. Credentials appear on the card (30‑minute TTL). Use **Renew** when expired  
-5. Switch to **History Articles**, select the account → **Fetch last 7 days** → export as needed  
+1. **Credential Manager** → **Install CA** → restart WeChat Desktop  
+2. Account name + any article URL → **Add & Capture**  
+3. Open any article from that OA in WeChat Desktop  
+4. Credentials appear (30‑minute TTL). Use **Renew** when expired  
+5. **History Articles** → pick range (7 / 30 / 90 days) → **Fetch** → export list or per-article body  
 
-> Tip: Prefer **Add & Capture** over starting the proxy alone. Binding an account first avoids orphan captures.
+> Prefer **Add & Capture** over starting the proxy alone. If getmsg misses a same‑day article, open it while capture is on, or use **补录链接**.
 
 ---
 
@@ -91,64 +109,57 @@ python main.py
 .\build.ps1
 ```
 
-Output (onedir — distribute the **whole folder**):
-
 ```text
 dist\Schinza\Schinza.exe
 ```
 
-Do **not** ship a lone `.exe` without `_internal/` and the OpenSSL DLLs next to it.
-
-Private CA material (`mitmproxy-ca.pem` with key) is required to build a capture-capable binary. **Never commit private keys** to a public repository.
+Distribute the **whole** `dist\Schinza` folder. Private CA material is required for a capture-capable binary — **never commit private keys**.
 
 ---
 
 ## Project layout
 
 ```text
-Schinza/
-├── assets/                 # Brand logo & Windows icon
+├── assets/
 ├── app/
-│   ├── ui.py               # CustomTkinter UI (tabs, cards, export)
-│   ├── mitm_capture.py     # In-process mitmproxy + system proxy
-│   ├── mitm_addon.py       # Credential capture addon
-│   ├── history_client.py   # getmsg history client
-│   ├── history_export.py   # Multi-format export
-│   ├── credentials.py      # Parse / validate credential blobs
-│   ├── store.py            # Local accounts.json (30 min TTL)
-│   └── ca_setup.py         # Prepare / install CA
+│   ├── ui.py                 # CustomTkinter UI
+│   ├── mitm_capture.py       # In-process mitmproxy
+│   ├── mitm_addon.py         # Creds + article sightings
+│   ├── history_client.py     # getmsg + sighting merge
+│   ├── history_ranges.py     # 7 / 30 / 90 day presets
+│   ├── history_export.py     # List export formats
+│   ├── article_reader.py     # Article HTML / MD / TXT / JSON
+│   ├── sightings.py          # Local补录 / MITM sightings store
+│   ├── credentials.py
+│   ├── store.py
+│   └── ca_setup.py
 ├── tests/
 ├── main.py
 ├── build.ps1
 ├── requirements.txt
 ├── LICENSE
-├── README.md               # English (this file)
-└── README.zh-CN.md         # 中文文档
+├── README.md
+└── README.zh-CN.md
 ```
 
 ---
 
 ## Export formats
 
-| Format | Use case |
-|--------|----------|
-| JSON | Full structured payload |
-| CSV (Excel) | Spreadsheet / Excel (UTF-8 BOM) |
-| TSV | Tab-separated pipelines |
-| Markdown | Docs / notes |
-| Plain links TXT | Link-only lists |
-| Title + link TXT | Human-readable lists |
+**History list:** JSON · CSV · TSV · Markdown · plain links · title+link  
+
+**Single article:** HTML (normalized WeChat layout) · Markdown · TXT · JSON  
 
 ---
 
 ## Security & ethics
 
-- Credentials are **short-lived** and stored only in `data/accounts.json` on disk.  
-- History requests **bypass the system MITM proxy** (`trust_env=False`) and talk to WeChat directly.  
-- Use only on accounts and devices you are **authorized** to operate.  
-- Respect WeChat / Tencent terms of service and applicable laws.  
-- Do not publish private CA keys, live `uin`/`key`/`pass_ticket`, or production secrets.  
-- This project is open-source only; authors are not responsible for others’ misuse or dangerous behavior (see [Disclaimer](#disclaimer)).
+- Short-lived credentials in `data/accounts.json` only  
+- History fetch bypasses the system MITM proxy (`trust_env=False`)  
+- Use only on accounts/devices you are authorized to operate  
+- Respect WeChat / Tencent terms and applicable laws  
+- Do not publish private CA keys or live `uin` / `key` / `pass_ticket`  
+- Authors are not responsible for misuse (see [Disclaimer](#disclaimer))
 
 ---
 
@@ -156,10 +167,11 @@ Schinza/
 
 | Item | Detail |
 |------|--------|
-| Proxy | `127.0.0.1:8088` when capture is running |
-| TTL | 30 minutes per credential (`app/store.py`) |
-| History window | Last 7 days (`HISTORY_DAYS` in `app/ui.py`) |
+| Proxy | `127.0.0.1:8088` while capture is running |
+| TTL | 30 minutes per credential |
+| History window | 7 / 30 / 90 days |
 | getmsg API | `https://mp.weixin.qq.com/mp/profile_ext?action=getmsg` |
+| Releases | https://github.com/Alexxxxxxxxxxxxy/schinza-wechat-certificate/releases |
 
 ---
 
@@ -169,22 +181,15 @@ Schinza/
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
 python main.py
-
-# Lightweight checks
-python -c "import tests.test_credentials as t; t.test_parse_url(); print('ok')"
 ```
 
-Contributions are welcome via pull requests. Please keep changes focused, avoid committing `data/*.json`, `dist/`, `.venv/`, or CA private keys.
+Contributions welcome via PR. Do not commit `data/*.json`, `dist/`, `.venv/`, or CA private keys.
 
 ---
 
 ## License
 
-This project is released under the [MIT License](LICENSE).
-
-```text
-Copyright (c) 2026 Schinza Contributors
-```
+[MIT License](LICENSE) — Copyright (c) 2026 Schinza Contributors
 
 ---
 
@@ -192,15 +197,19 @@ Copyright (c) 2026 Schinza Contributors
 
 Schinza is provided **solely as open-source software** for learning, research, and legitimate self-hosted use.
 
-- By downloading, copying, modifying, or running this project, **you accept full responsibility** for your own actions and for any consequences that follow.
-- The authors and contributors are **not liable** for any loss, account ban, legal dispute, data leak, security incident, or other damage arising from use or misuse of this software.
-- **Any dangerous, abusive, illegal, or ToS-violating behavior by third parties has nothing to do with the authors.** We do not encourage, instruct, or endorse such use.
-- Schinza is an independent project and is **not** affiliated with, endorsed by, or sponsored by Tencent or WeChat. “WeChat” and “微信” are trademarks of their respective owners.
+- By downloading, copying, modifying, or running this project, **you accept full responsibility** for your actions and consequences.
+- Authors and contributors are **not liable** for loss, account bans, legal disputes, data leaks, or other damage from use or misuse.
+- **Dangerous, abusive, illegal, or ToS-violating behavior by third parties has nothing to do with the authors.**
+- Schinza is **not** affiliated with Tencent or WeChat.
 
-**If you do not agree with these terms, do not use this software.**
+**If you do not agree, do not use this software.**
 
 ---
 
 <p align="center">
-  <a href="./README.md"><b>English</b></a> · <a href="./README.zh-CN.md">中文</a>
+  <a href="https://github.com/Alexxxxxxxxxxxxy/schinza-wechat-certificate/releases"><b>Download</b></a>
+  ·
+  <a href="./README.md"><b>English</b></a>
+  ·
+  <a href="./README.zh-CN.md">中文</a>
 </p>
