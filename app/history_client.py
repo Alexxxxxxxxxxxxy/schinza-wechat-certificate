@@ -583,7 +583,7 @@ def fetch_history_days(
             f"已达翻页上限 {page_limit} 页，近 {days} 天内可能仍有文章未拉完，请再点一次拉取续翻。"
         )
     if merged_extra:
-        extra = f"已合并补录/抓包 {merged_extra} 篇（微信 getmsg 常漏掉同日后续推送）"
+        extra = f"已合并补录/抓包 {merged_extra} 篇"
         warn = f"{warn} · {extra}" if warn else extra
 
     if on_progress:

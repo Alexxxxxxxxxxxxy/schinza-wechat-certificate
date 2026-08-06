@@ -26,6 +26,10 @@
   <b><a href="https://github.com/Alexxxxxxxxxxxxy/schinza-wechat-certificate/releases">⬇ 下载最新发行版</a></b>
 </p>
 
+<p align="center">
+  <img src="assets/screenshot-credentials.png" alt="Schinza 凭证管理界面" width="860" />
+</p>
+
 ---
 
 ## 下载
@@ -49,7 +53,7 @@
 | 模块 | 功能 |
 |------|------|
 | **凭证管理** | 安装随包 MITM CA、启动本地代理，从微信桌面捕获 `__biz` / `uin` / `key` / `pass_ticket`；每套凭证 **30 分钟**有效，支持续约 / 复制 JSON |
-| **历史文章** | 经 `profile_ext?action=getmsg` 拉取 **近 7 / 30 / 90 天**列表；微信漏掉同日后续推送时，可用抓包目击或 **补录链接** 合并 |
+| **历史文章** | 拉取 **近 7 / 30 / 90 天**历史；列表导出；单篇 / 批量正文导出；可选 **补录链接** |
 | **列表导出** | JSON · CSV（Excel）· TSV · Markdown · 纯链接 · 标题+链接 |
 | **正文导出** | 单篇或**批量**：**HTML** · **Markdown** · **TXT** · **JSON** · **Word (.docx)** |
 
@@ -99,7 +103,7 @@ python main.py
 4. 卡片出现凭证（30 分钟）。过期后点 **续约**  
 5. **历史文章** → 选择 7 / 30 / 90 天 → **拉取** → 导出列表或单篇正文  
 
-> 请优先「添加并抓包」。若 getmsg 漏掉同日文章，可在抓包开启时点开该文，或使用「补录链接」。
+> 请优先「添加并抓包」。需要补充文章时可用「补录链接」。
 
 ---
 

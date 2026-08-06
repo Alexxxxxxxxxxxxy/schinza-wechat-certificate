@@ -26,6 +26,10 @@
   <b><a href="https://github.com/Alexxxxxxxxxxxxy/schinza-wechat-certificate/releases">⬇ Download latest release</a></b>
 </p>
 
+<p align="center">
+  <img src="assets/screenshot-credentials.png" alt="Schinza Credential Manager" width="860" />
+</p>
+
 ---
 
 ## Download
@@ -49,7 +53,7 @@ Source repository: [Alexxxxxxxxxxxxy/schinza-wechat-certificate](https://github.
 | Module | What it does |
 |--------|----------------|
 | **Credential Manager** | Install bundled MITM CA, start local proxy, capture `__biz` / `uin` / `key` / `pass_ticket` from WeChat Desktop; **30‑minute TTL** with renew / copy JSON |
-| **History Articles** | Pull history via `profile_ext?action=getmsg` for **7 / 30 / 90 days**; merge MITM sightings or **manual URL补录** when WeChat omits same‑day later pushes |
+| **History Articles** | Fetch **7 / 30 / 90‑day** history; list export; per‑article or batch body export; optional **URL补录** |
 | **List export** | JSON · CSV (Excel) · TSV · Markdown · plain links · title+link |
 | **Article export** | Per-article or **batch**: **HTML** · **Markdown** · **TXT** · **JSON** · **Word (.docx)** |
 
@@ -99,7 +103,7 @@ python main.py
 4. Credentials appear (30‑minute TTL). Use **Renew** when expired  
 5. **History Articles** → pick range (7 / 30 / 90 days) → **Fetch** → export list or per-article body  
 
-> Prefer **Add & Capture** over starting the proxy alone. If getmsg misses a same‑day article, open it while capture is on, or use **补录链接**.
+> Prefer **Add & Capture** over starting the proxy alone. Use **补录链接** when you need to add a missing article.
 
 ---
 

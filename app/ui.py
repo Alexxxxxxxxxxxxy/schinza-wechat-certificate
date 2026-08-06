@@ -327,7 +327,7 @@ class CertificateApp(ctk.CTk):
 
         ctk.CTkLabel(
             header,
-            text=f"凭证 {TTL_MINUTES} 分钟 · 历史拉取 · HTML / MD / TXT / JSON",
+            text=f"凭证 {TTL_MINUTES} 分钟 · 历史文章 · HTML / MD / TXT / JSON / Word",
             font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
             text_color=COLORS["muted"],
             anchor="e",
@@ -371,16 +371,6 @@ class CertificateApp(ctk.CTk):
             btn.grid(row=i + 1, column=0, sticky="ew", padx=12, pady=4)
             self._nav_btns[key] = btn
 
-        tip = ctk.CTkLabel(
-            side,
-            text="getmsg 可能漏同日推送\n开抓包点开文章或补录",
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=11),
-            text_color=COLORS["muted"],
-            anchor="w",
-            justify="left",
-            wraplength=150,
-        )
-        tip.grid(row=4, column=0, sticky="sew", padx=18, pady=(0, 20))
         side.grid_rowconfigure(3, weight=1)
 
     def _resolve_asset(self, name: str) -> Path | None:
@@ -665,11 +655,7 @@ class CertificateApp(ctk.CTk):
 
         ctk.CTkLabel(
             panel,
-            text=(
-                "用未过期凭证经 getmsg 拉取历史列表；可选 7 / 30 / 90 天。"
-                "接口常漏同日后续推送：开抓包点开漏文或「补录链接」。"
-                "单篇支持 HTML / Markdown / TXT / JSON（保留微信排版）。"
-            ),
+            text="选择公众号与时间范围后拉取；支持列表导出与正文导出（HTML / Markdown / TXT / JSON / Word）。",
             font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
             text_color=COLORS["muted"],
             anchor="w",
@@ -732,7 +718,7 @@ class CertificateApp(ctk.CTk):
 
         self.hist_status = ctk.CTkLabel(
             panel,
-            text="请选择凭证未过期的公众号与时间范围后点击拉取。",
+            text="请选择公众号与时间范围后点击拉取。",
             text_color=COLORS["muted"],
             font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
             anchor="w",
@@ -1181,7 +1167,7 @@ class CertificateApp(ctk.CTk):
         self.refresh_history_account_options()
         account_id = self._selected_history_account_id()
         if not account_id:
-            self.set_hist_status("没有可用的有效凭证。请先在「凭证管理」抓取并保持未过期。", ok=False)
+            self.set_hist_status("没有可用的有效凭证。请先在「凭证管理」抓取凭证。", ok=False)
             return
         if not self.store.is_active(account_id):
             self.set_hist_status("所选公众号凭证已过期，请先续约。", ok=False)
@@ -1514,7 +1500,7 @@ class CertificateApp(ctk.CTk):
 
         ctk.CTkLabel(
             card,
-            text="粘贴 getmsg 漏掉的公众号文章链接，将合并进当前列表。",
+            text="粘贴公众号文章链接，将合并进当前列表。",
             font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
             text_color=COLORS["muted"],
             anchor="w",
@@ -1598,7 +1584,7 @@ class CertificateApp(ctk.CTk):
         return result["url"]
 
     def manual_add_article_url(self) -> None:
-        """补录一篇 getmsg 漏掉的文章（常见：同日晚些推送）。"""
+        """补录一篇文章链接并合并进当前列表。"""
         account_id = self._selected_history_account_id()
         row = self.store.get(account_id) if account_id else None
         biz = ""
