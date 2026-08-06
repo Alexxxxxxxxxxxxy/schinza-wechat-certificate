@@ -1,19 +1,23 @@
 """Read WeChat MP article HTML and export (inspired by wechat-article-exporter).
 
-Formats: html (normalized WeChat layout), markdown, txt, json.
+Formats: html (normalized WeChat layout), markdown, txt, json, word (.docx).
 """
 
 from __future__ import annotations
 
 import html
+import io
 import json
 import re
 from datetime import datetime
-from typing import Any
+from pathlib import Path
+from typing import Any, Callable
 from urllib.parse import unquote
 
 import requests
 from bs4 import BeautifulSoup, Tag
+from docx import Document
+from docx.shared import Pt, RGBColor
 
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -27,6 +31,7 @@ ARTICLE_EXPORT_FORMATS: dict[str, str] = {
     "markdown": "Markdown",
     "txt": "TXT",
     "json": "JSON",
+    "word": "Word",
 }
 
 ARTICLE_EXPORT_LABELS = list(ARTICLE_EXPORT_FORMATS.values())
@@ -340,7 +345,47 @@ def article_to_html_document(art: dict[str, Any]) -> str:
     )
 
 
-def render_article_export(art: dict[str, Any], fmt: str) -> str:
+def article_to_docx(art: dict[str, Any]) -> bytes:
+    """Build a .docx (OOXML zip) from article title / meta / body text."""
+    doc = Document()
+    style = doc.styles["Normal"]
+    style.font.name = "Microsoft YaHei"
+    style.font.size = Pt(11)
+
+    title = str(art.get("title") or "(无标题)").strip()
+    link = str(art.get("link") or "").strip()
+    when = str(art.get("publish_at") or "").strip()
+    body = str(art.get("body_text") or "").strip()
+
+    h = doc.add_heading(title, level=1)
+    for run in h.runs:
+        run.font.color.rgb = RGBColor(0x1A, 0x1A, 0x1A)
+
+    if link:
+        p = doc.add_paragraph()
+        run = p.add_run(f"来源：{link}")
+        run.font.size = Pt(9)
+        run.font.color.rgb = RGBColor(0x66, 0x66, 0x66)
+    if when:
+        p = doc.add_paragraph()
+        run = p.add_run(f"发布时间：{when}")
+        run.font.size = Pt(9)
+        run.font.color.rgb = RGBColor(0x66, 0x66, 0x66)
+
+    if body:
+        for block in re.split(r"\n\s*\n", body):
+            line = block.strip()
+            if line:
+                doc.add_paragraph(line)
+    else:
+        doc.add_paragraph("（无正文）")
+
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
+
+def _normalize_fmt(fmt: str) -> str:
     key = (fmt or "markdown").lower().strip()
     aliases = {
         "md": "markdown",
@@ -349,8 +394,16 @@ def render_article_export(art: dict[str, Any], fmt: str) -> str:
         "txt": "txt",
         "text": "txt",
         "json": "json",
+        "word": "word",
+        "docx": "word",
+        "doc": "word",
     }
-    key = aliases.get(key, key)
+    return aliases.get(key, key)
+
+
+def render_article_export(art: dict[str, Any], fmt: str) -> str:
+    """Return text payload. For Word use ``article_to_docx`` / ``write_article_export``."""
+    key = _normalize_fmt(fmt)
     if key == "html":
         return article_to_html_document(art)
     if key == "markdown":
@@ -359,7 +412,85 @@ def render_article_export(art: dict[str, Any], fmt: str) -> str:
         return article_to_txt(art)
     if key == "json":
         return article_to_json(art)
+    if key == "word":
+        raise ValueError("Word 为二进制格式，请使用 write_article_export / article_to_docx")
     raise ValueError(f"不支持的导出格式: {fmt}")
+
+
+def write_article_export(path: Path | str, art: dict[str, Any], fmt: str) -> Path:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    key = _normalize_fmt(fmt)
+    if key == "word":
+        path.write_bytes(article_to_docx(art))
+    else:
+        path.write_text(render_article_export(art, key), encoding="utf-8")
+    return path
+
+
+def safe_export_filename(title: str, *, ext: str, index: int = 0) -> str:
+    safe = re.sub(r'[\\/:*?"<>|]+', "_", (title or "article").strip())[:48] or "article"
+    if index > 0:
+        return f"{index:02d}_{safe}.{ext}"
+    return f"{safe}.{ext}"
+
+
+def batch_export_articles(
+    articles: list[dict[str, Any]],
+    *,
+    out_dir: Path | str,
+    fmt: str = "markdown",
+    fetch_article: Callable[..., dict[str, Any]] | None = None,
+    cred: dict[str, Any] | None = None,
+    on_progress: Callable[[str], None] | None = None,
+) -> dict[str, Any]:
+    """Fetch each article body and write into ``out_dir``.
+
+    ``fetch_article(url, cred=...)`` defaults to ``fetch_and_parse_article``.
+    """
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    key = _normalize_fmt(fmt)
+    ext = extension_for_article_format(key)
+    fetch = fetch_article or fetch_and_parse_article
+    ok_n = 0
+    failed_n = 0
+    errors: list[str] = []
+    written: list[str] = []
+
+    for i, row in enumerate(articles, start=1):
+        link = str(row.get("link") or "").strip()
+        title = str(row.get("title") or f"article_{i}").strip()
+        if on_progress:
+            on_progress(f"正在导出 {i}/{len(articles)}：{title[:28]}")
+        if not link:
+            failed_n += 1
+            errors.append(f"{title}: 无链接")
+            continue
+        try:
+            parsed = fetch(link, cred=cred)
+            if not parsed.get("publish_at") and row.get("publish_at"):
+                parsed["publish_at"] = row.get("publish_at")
+            if not parsed.get("publish_ts") and row.get("publish_ts"):
+                parsed["publish_ts"] = row.get("publish_ts")
+            if not parsed.get("title") or parsed.get("title") == "(无标题)":
+                parsed["title"] = title or parsed.get("title")
+            fname = safe_export_filename(str(parsed.get("title") or title), ext=ext, index=i)
+            path = write_article_export(out_dir / fname, parsed, key)
+            written.append(str(path))
+            ok_n += 1
+        except Exception as exc:  # noqa: BLE001
+            failed_n += 1
+            errors.append(f"{title}: {exc}")
+
+    return {
+        "ok": ok_n,
+        "failed": failed_n,
+        "errors": errors,
+        "written": written,
+        "out_dir": str(out_dir),
+        "fmt": key,
+    }
 
 
 def format_key_for_article_label(label: str) -> str:
@@ -370,15 +501,17 @@ def format_key_for_article_label(label: str) -> str:
 
 
 def extension_for_article_format(fmt: str) -> str:
-    key = (fmt or "markdown").lower()
-    if key in ("md", "markdown"):
+    key = _normalize_fmt(fmt)
+    if key == "markdown":
         return "md"
     if key == "html":
         return "html"
-    if key in ("txt", "text"):
+    if key == "txt":
         return "txt"
     if key == "json":
         return "json"
+    if key == "word":
+        return "docx"
     return "md"
 
 

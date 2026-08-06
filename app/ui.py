@@ -16,10 +16,11 @@ from PIL import Image
 from app.article_reader import (
     ARTICLE_EXPORT_FORMATS,
     ARTICLE_EXPORT_LABELS,
+    batch_export_articles,
     extension_for_article_format,
     fetch_and_parse_article,
     format_key_for_article_label,
-    render_article_export,
+    write_article_export,
 )
 from app.ca_setup import PROXY_HOST, PROXY_PORT, install_ca_windows, open_p12_in_explorer
 from app.clipboard_watch import ClipboardWatcher
@@ -141,7 +142,7 @@ class AccountCard(ctk.CTkFrame):
             font=ctk.CTkFont(family="Microsoft YaHei UI", size=13, weight="bold"),
             command=lambda: self.app.copy_credentials(self.account_id),
         )
-        self.copy_btn.pack(side="left", padx=(0, 8))
+        self.copy_btn.pack(side="left", padx=(0, 14))
 
         self.renew_btn = ctk.CTkButton(
             actions,
@@ -155,7 +156,7 @@ class AccountCard(ctk.CTkFrame):
             font=ctk.CTkFont(family="Microsoft YaHei UI", size=13, weight="bold"),
             command=lambda: self.app.renew_account(self.account_id),
         )
-        self.renew_btn.pack(side="left", padx=(0, 8))
+        self.renew_btn.pack(side="left", padx=(0, 14))
 
         self.open_btn = ctk.CTkButton(
             actions,
@@ -169,7 +170,7 @@ class AccountCard(ctk.CTkFrame):
             font=ctk.CTkFont(family="Microsoft YaHei UI", size=13),
             command=lambda: self.app.open_article(self.account_id),
         )
-        self.open_btn.pack(side="left", padx=(0, 8))
+        self.open_btn.pack(side="left", padx=(0, 14))
 
         self.del_btn = ctk.CTkButton(
             actions,
@@ -234,6 +235,8 @@ class CertificateApp(ctk.CTk):
         self._history_cred: dict[str, Any] = {}
         self._history_fetching = False
         self._article_exporting = False
+        self._batch_exporting = False
+        self._history_selected: set[str] = set()
         self._account_options: list[tuple[str, str]] = []  # (label, id)
         self._nav_btns: dict[str, ctk.CTkButton] = {}
 
@@ -470,37 +473,37 @@ class CertificateApp(ctk.CTk):
         ).grid(row=1, column=0, sticky="ew", padx=18, pady=(0, 8))
 
         btns = ctk.CTkFrame(panel, fg_color="transparent")
-        btns.grid(row=2, column=0, sticky="w", padx=18, pady=(0, 8))
+        btns.grid(row=2, column=0, sticky="w", padx=18, pady=(4, 14))
 
         ctk.CTkButton(
             btns,
             text="安装 CA 证书",
             width=120,
-            height=32,
+            height=34,
             corner_radius=10,
             fg_color=COLORS["accent"],
             hover_color=COLORS["accent_hover"],
-            text_color="#0b1412",
+            text_color="#052e16",
             font=ctk.CTkFont(family="Microsoft YaHei UI", size=13, weight="bold"),
             command=self.install_ca,
-        ).pack(side="left", padx=(0, 8))
+        ).pack(side="left", padx=(0, 16))
 
         ctk.CTkButton(
             btns,
             text="打开证书文件",
             width=120,
-            height=32,
+            height=34,
             corner_radius=10,
             fg_color=COLORS["border"],
             hover_color="#3a4a5e",
             command=self.reveal_ca_file,
-        ).pack(side="left", padx=(0, 8))
+        ).pack(side="left", padx=(0, 16))
 
         self.proxy_btn = ctk.CTkButton(
             btns,
             text="手动启停代理",
             width=120,
-            height=32,
+            height=34,
             corner_radius=10,
             fg_color=COLORS["border"],
             hover_color="#3a4a5e",
@@ -508,7 +511,7 @@ class CertificateApp(ctk.CTk):
             font=ctk.CTkFont(family="Microsoft YaHei UI", size=13),
             command=self.toggle_proxy,
         )
-        self.proxy_btn.pack(side="left", padx=(0, 8))
+        self.proxy_btn.pack(side="left", padx=(0, 16))
 
         self.proxy_lbl = ctk.CTkLabel(
             panel,
@@ -727,49 +730,32 @@ class CertificateApp(ctk.CTk):
         )
         self.hist_fetch_btn.grid(row=2, column=3, sticky="e", padx=(0, 18), pady=6)
 
-        action_row = ctk.CTkFrame(panel, fg_color="transparent")
-        action_row.grid(row=3, column=0, columnspan=4, sticky="ew", padx=18, pady=(4, 14))
-
         self.hist_status = ctk.CTkLabel(
-            action_row,
+            panel,
             text="请选择凭证未过期的公众号与时间范围后点击拉取。",
             text_color=COLORS["muted"],
             font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
             anchor="w",
             justify="left",
-            wraplength=360,
+            wraplength=720,
         )
-        self.hist_status.pack(side="left", fill="x", expand=True)
+        self.hist_status.grid(row=3, column=0, columnspan=4, sticky="ew", padx=18, pady=(8, 4))
 
-        ctk.CTkButton(
-            action_row,
-            text="导出文件",
-            width=88,
-            height=30,
-            corner_radius=8,
-            fg_color=COLORS["accent"],
-            hover_color=COLORS["accent_hover"],
-            text_color="#0b1412",
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=12, weight="bold"),
-            command=self.export_history_file,
-        ).pack(side="right", padx=(8, 0))
+        list_tools = ctk.CTkFrame(panel, fg_color="transparent")
+        list_tools.grid(row=4, column=0, columnspan=4, sticky="ew", padx=18, pady=(4, 8))
 
-        ctk.CTkButton(
-            action_row,
-            text="复制",
-            width=64,
-            height=30,
-            corner_radius=8,
-            fg_color=COLORS["border"],
-            hover_color="#3a4a5e",
-            command=self.copy_history_formatted,
-        ).pack(side="right", padx=(8, 0))
+        ctk.CTkLabel(
+            list_tools,
+            text="列表导出",
+            text_color=COLORS["muted"],
+            font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
+        ).pack(side="left", padx=(0, 10))
 
         self.hist_format_menu = ctk.CTkOptionMenu(
-            action_row,
+            list_tools,
             values=FORMAT_LABELS,
             width=128,
-            height=30,
+            height=32,
             corner_radius=8,
             fg_color=COLORS["card"],
             button_color=COLORS["border"],
@@ -779,36 +765,115 @@ class CertificateApp(ctk.CTk):
             dropdown_font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
         )
         self.hist_format_menu.set(FORMAT_LABELS[0])
-        self.hist_format_menu.pack(side="right", padx=(8, 0))
-
-        ctk.CTkLabel(
-            action_row,
-            text="导出格式",
-            text_color=COLORS["muted"],
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
-        ).pack(side="right", padx=(12, 0))
+        self.hist_format_menu.pack(side="left", padx=(0, 14))
 
         ctk.CTkButton(
-            action_row,
+            list_tools,
+            text="复制列表",
+            width=84,
+            height=32,
+            corner_radius=8,
+            fg_color=COLORS["border"],
+            hover_color="#3a4a5e",
+            command=self.copy_history_formatted,
+        ).pack(side="left", padx=(0, 14))
+
+        ctk.CTkButton(
+            list_tools,
+            text="导出列表",
+            width=88,
+            height=32,
+            corner_radius=8,
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            text_color="#052e16",
+            font=ctk.CTkFont(family="Microsoft YaHei UI", size=12, weight="bold"),
+            command=self.export_history_file,
+        ).pack(side="left", padx=(0, 20))
+
+        ctk.CTkButton(
+            list_tools,
             text="补录链接",
-            width=80,
-            height=30,
+            width=88,
+            height=32,
             corner_radius=8,
             fg_color=COLORS["border"],
             hover_color="#3a4a5e",
             command=self.manual_add_article_url,
-        ).pack(side="right", padx=(8, 0))
+        ).pack(side="left", padx=(0, 14))
 
         ctk.CTkButton(
-            action_row,
+            list_tools,
             text="刷新",
-            width=64,
-            height=30,
+            width=68,
+            height=32,
             corner_radius=8,
             fg_color=COLORS["border"],
             hover_color="#3a4a5e",
             command=self.refresh_history_account_options,
-        ).pack(side="right")
+        ).pack(side="left")
+
+        batch_tools = ctk.CTkFrame(panel, fg_color="transparent")
+        batch_tools.grid(row=5, column=0, columnspan=4, sticky="ew", padx=18, pady=(0, 16))
+
+        ctk.CTkLabel(
+            batch_tools,
+            text="正文导出",
+            text_color=COLORS["muted"],
+            font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
+        ).pack(side="left", padx=(0, 10))
+
+        self.article_fmt_menu = ctk.CTkOptionMenu(
+            batch_tools,
+            values=ARTICLE_EXPORT_LABELS,
+            width=110,
+            height=32,
+            corner_radius=8,
+            fg_color=COLORS["card"],
+            button_color=COLORS["border"],
+            button_hover_color="#3a4a5e",
+            text_color=COLORS["text"],
+            font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
+            dropdown_font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
+        )
+        self.article_fmt_menu.set("Markdown")
+        self.article_fmt_menu.pack(side="left", padx=(0, 14))
+
+        ctk.CTkButton(
+            batch_tools,
+            text="全选",
+            width=64,
+            height=32,
+            corner_radius=8,
+            fg_color=COLORS["border"],
+            hover_color="#3a4a5e",
+            command=self.select_all_history,
+        ).pack(side="left", padx=(0, 14))
+
+        ctk.CTkButton(
+            batch_tools,
+            text="取消选择",
+            width=84,
+            height=32,
+            corner_radius=8,
+            fg_color=COLORS["border"],
+            hover_color="#3a4a5e",
+            command=self.clear_history_selection,
+        ).pack(side="left", padx=(0, 14))
+
+        self.batch_export_btn = ctk.CTkButton(
+            batch_tools,
+            text="批量导出",
+            width=96,
+            height=32,
+            corner_radius=8,
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            text_color="#052e16",
+            font=ctk.CTkFont(family="Microsoft YaHei UI", size=12, weight="bold"),
+            command=self.batch_export_selected,
+        )
+        self.batch_export_btn.pack(side="left", padx=(0, 14))
 
         list_wrap = ctk.CTkFrame(self.hist_view, fg_color="transparent")
         list_wrap.grid(row=1, column=0, sticky="nsew", padx=20, pady=(0, 8))
@@ -817,11 +882,11 @@ class CertificateApp(ctk.CTk):
 
         ctk.CTkLabel(
             list_wrap,
-            text="文章列表",
+            text="文章列表（勾选后可批量导出正文）",
             font=ctk.CTkFont(family="Microsoft YaHei UI", size=15, weight="bold"),
             text_color=COLORS["text"],
             anchor="w",
-        ).grid(row=0, column=0, sticky="w", pady=(0, 8))
+        ).grid(row=0, column=0, sticky="w", pady=(0, 10))
 
         self.hist_list = ctk.CTkScrollableFrame(
             list_wrap,
@@ -1171,6 +1236,7 @@ class CertificateApp(ctk.CTk):
         articles = list(result.get("articles") or [])
         self._history_articles = articles
         self._history_account_name = account_name
+        self._history_selected.clear()
         self._render_history_list()
         if not result.get("ok"):
             self.set_hist_status(
@@ -1199,6 +1265,29 @@ class CertificateApp(ctk.CTk):
         )
         return label, text
 
+    def _article_key(self, art: dict[str, Any]) -> str:
+        return str(art.get("identity") or art.get("link") or art.get("title") or "")
+
+    def select_all_history(self) -> None:
+        self._history_selected = {
+            self._article_key(a) for a in self._history_articles if self._article_key(a)
+        }
+        self._render_history_list()
+        self.set_hist_status(f"已全选 {len(self._history_selected)} 篇", ok=True)
+
+    def clear_history_selection(self) -> None:
+        self._history_selected.clear()
+        self._render_history_list()
+        self.set_hist_status("已取消选择", ok=True)
+
+    def _toggle_history_select(self, key: str, checked: bool) -> None:
+        if not key:
+            return
+        if checked:
+            self._history_selected.add(key)
+        else:
+            self._history_selected.discard(key)
+
     def _render_history_list(self) -> None:
         for child in self.hist_list.winfo_children():
             child.destroy()
@@ -1218,8 +1307,23 @@ class CertificateApp(ctk.CTk):
                 border_width=1,
                 border_color=COLORS["border"],
             )
-            card.grid(row=i, column=0, sticky="ew", pady=(0, 8))
-            card.grid_columnconfigure(0, weight=1)
+            card.grid(row=i, column=0, sticky="ew", pady=(0, 12))
+            card.grid_columnconfigure(1, weight=1)
+
+            key = self._article_key(art)
+            var = ctk.BooleanVar(value=key in self._history_selected)
+            ctk.CTkCheckBox(
+                card,
+                text="",
+                width=28,
+                checkbox_width=20,
+                checkbox_height=20,
+                fg_color=COLORS["accent"],
+                hover_color=COLORS["accent_hover"],
+                border_color=COLORS["border"],
+                variable=var,
+                command=lambda k=key, v=var: self._toggle_history_select(k, bool(v.get())),
+            ).grid(row=0, column=0, rowspan=3, sticky="n", padx=(14, 6), pady=14)
 
             title = art.get("title") or "(无标题)"
             when = art.get("publish_at") or ""
@@ -1241,8 +1345,8 @@ class CertificateApp(ctk.CTk):
                 text_color=COLORS["text"],
                 anchor="w",
                 justify="left",
-                wraplength=700,
-            ).grid(row=0, column=0, sticky="w", padx=14, pady=(12, 2))
+                wraplength=640,
+            ).grid(row=0, column=1, sticky="w", padx=(0, 14), pady=(12, 2))
 
             meta = when + (f"  ·  {digest}" if digest else "") + source_tag
             ctk.CTkLabel(
@@ -1252,40 +1356,40 @@ class CertificateApp(ctk.CTk):
                 text_color=COLORS["muted"],
                 anchor="w",
                 justify="left",
-                wraplength=700,
-            ).grid(row=1, column=0, sticky="w", padx=14, pady=(0, 8))
+                wraplength=640,
+            ).grid(row=1, column=1, sticky="w", padx=(0, 14), pady=(0, 8))
 
             actions = ctk.CTkFrame(card, fg_color="transparent")
-            actions.grid(row=2, column=0, sticky="e", padx=14, pady=(0, 12))
+            actions.grid(row=2, column=1, sticky="e", padx=(0, 14), pady=(0, 14))
 
             ctk.CTkButton(
                 actions,
                 text="打开",
-                width=56,
-                height=28,
+                width=60,
+                height=30,
                 corner_radius=8,
                 fg_color=COLORS["accent"],
                 hover_color=COLORS["accent_hover"],
                 text_color="#052e16",
                 command=lambda u=link: self._open_url(u),
-            ).pack(side="left", padx=(0, 6))
+            ).pack(side="left", padx=(0, 12))
 
             ctk.CTkButton(
                 actions,
                 text="复制链接",
-                width=72,
-                height=28,
+                width=80,
+                height=30,
                 corner_radius=8,
                 fg_color=COLORS["border"],
                 hover_color="#3a4a5e",
                 command=lambda u=link: self._copy_text(u, "已复制链接"),
-            ).pack(side="left", padx=(0, 6))
+            ).pack(side="left", padx=(0, 12))
 
             fmt_menu = ctk.CTkOptionMenu(
                 actions,
                 values=ARTICLE_EXPORT_LABELS,
-                width=108,
-                height=28,
+                width=110,
+                height=30,
                 corner_radius=8,
                 fg_color=COLORS["bg"],
                 button_color=COLORS["border"],
@@ -1294,14 +1398,14 @@ class CertificateApp(ctk.CTk):
                 font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
                 dropdown_font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
             )
-            fmt_menu.set("Markdown")
-            fmt_menu.pack(side="left", padx=(0, 6))
+            fmt_menu.set(self.article_fmt_menu.get() if hasattr(self, "article_fmt_menu") else "Markdown")
+            fmt_menu.pack(side="left", padx=(0, 12))
 
             ctk.CTkButton(
                 actions,
                 text="导出",
-                width=64,
-                height=28,
+                width=68,
+                height=30,
                 corner_radius=8,
                 fg_color=COLORS["border"],
                 hover_color="#3a4a5e",
@@ -1579,25 +1683,30 @@ class CertificateApp(ctk.CTk):
                 )
                 self._render_history_list()
 
+    def _resolve_article_fmt(self, fmt: str) -> str:
+        raw = (fmt or "markdown").strip()
+        if raw in ARTICLE_EXPORT_LABELS:
+            return format_key_for_article_label(raw)
+        key = raw.lower()
+        if key in ("md",):
+            return "markdown"
+        if key in ("text",):
+            return "txt"
+        if key in ("docx", "doc"):
+            return "word"
+        if key not in ARTICLE_EXPORT_FORMATS:
+            return "markdown"
+        return key
+
     def export_article(self, art: dict[str, Any], *, fmt: str) -> None:
-        if self._article_exporting:
-            self.set_hist_status("正在导出另一篇文章，请稍候…", ok=False)
+        if self._article_exporting or self._batch_exporting:
+            self.set_hist_status("正在导出中，请稍候…", ok=False)
             return
         link = str(art.get("link") or "").strip()
         if not link:
             self.set_hist_status("该条目没有链接，无法导出正文", ok=False)
             return
-        raw = (fmt or "markdown").strip()
-        if raw in ARTICLE_EXPORT_LABELS:
-            fmt_key = format_key_for_article_label(raw)
-        else:
-            fmt_key = raw.lower()
-            if fmt_key == "md":
-                fmt_key = "markdown"
-            if fmt_key == "text":
-                fmt_key = "txt"
-        if fmt_key not in ("html", "markdown", "txt", "json"):
-            fmt_key = "markdown"
+        fmt_key = self._resolve_article_fmt(fmt)
         title = str(art.get("title") or "article")
         safe = re.sub(r'[\\/:*?"<>|]+', "_", title)[:48] or "article"
         ext = extension_for_article_format(fmt_key)
@@ -1629,9 +1738,7 @@ class CertificateApp(ctk.CTk):
                     parsed["publish_at"] = art.get("publish_at")
                 if not parsed.get("publish_ts") and art.get("publish_ts"):
                     parsed["publish_ts"] = art.get("publish_ts")
-                text = render_article_export(parsed, fmt_key)
-                path = Path(path_str)
-                path.write_text(text, encoding="utf-8")
+                path = write_article_export(Path(path_str), parsed, fmt_key)
                 err = ""
             except Exception as exc:  # noqa: BLE001
                 path = Path(path_str)
@@ -1651,6 +1758,75 @@ class CertificateApp(ctk.CTk):
             self.set_hist_status(f"导出失败：{err or '未知错误'}", ok=False)
             return
         self.set_hist_status(f"已导出 {ext.upper()} → {path}", ok=True)
+
+    def batch_export_selected(self) -> None:
+        if self._batch_exporting or self._article_exporting:
+            self.set_hist_status("正在导出中，请稍候…", ok=False)
+            return
+        if not self._history_articles:
+            self.set_hist_status("没有可导出的文章，请先拉取历史", ok=False)
+            return
+        selected = [
+            a
+            for a in self._history_articles
+            if self._article_key(a) in self._history_selected
+        ]
+        if not selected:
+            selected = list(self._history_articles)
+            self.set_hist_status(
+                f"未勾选文章，将导出全部 {len(selected)} 篇…", ok=True
+            )
+        fmt_key = self._resolve_article_fmt(self.article_fmt_menu.get())
+        label = ARTICLE_EXPORT_FORMATS.get(fmt_key, fmt_key)
+        initial_dir = str((self.root_dir / "data" / "exports").resolve())
+        Path(initial_dir).mkdir(parents=True, exist_ok=True)
+        dir_str = filedialog.askdirectory(
+            parent=self,
+            title=f"选择批量导出目录（{label} · {len(selected)} 篇）",
+            initialdir=initial_dir,
+        )
+        if not dir_str:
+            return
+
+        self._batch_exporting = True
+        self.batch_export_btn.configure(state="disabled", text="导出中…")
+        self.set_hist_status(f"批量导出 {len(selected)} 篇为 {label}…", ok=True)
+        cred = dict(self._history_cred or {})
+
+        def worker() -> None:
+            try:
+                result = batch_export_articles(
+                    selected,
+                    out_dir=Path(dir_str),
+                    fmt=fmt_key,
+                    cred=cred or None,
+                    on_progress=lambda m: self.after(
+                        0, lambda msg=m: self.set_hist_status(msg, ok=True)
+                    ),
+                )
+                err = ""
+            except Exception as exc:  # noqa: BLE001
+                result = {"ok": 0, "failed": len(selected), "out_dir": dir_str}
+                err = str(exc)
+            self.after(0, lambda: self._on_batch_export_done(result, err, label))
+
+        threading.Thread(target=worker, name="schinza-batch-export", daemon=True).start()
+
+    def _on_batch_export_done(
+        self, result: dict[str, Any], err: str, label: str
+    ) -> None:
+        self._batch_exporting = False
+        self.batch_export_btn.configure(state="normal", text="批量导出")
+        if err:
+            self.set_hist_status(f"批量导出失败：{err}", ok=False)
+            return
+        ok_n = int(result.get("ok") or 0)
+        fail_n = int(result.get("failed") or 0)
+        out = result.get("out_dir") or ""
+        self.set_hist_status(
+            f"批量导出完成（{label}）：成功 {ok_n} · 失败 {fail_n} → {out}",
+            ok=fail_n == 0,
+        )
 
     # ── tick / lifecycle ──────────────────────────────────────────────
 

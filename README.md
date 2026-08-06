@@ -11,7 +11,7 @@
 <p align="center">
   <strong>Windows desktop helper for WeChat Official Account credentials &amp; history</strong>
   <br />
-  Capture short-lived MP keys · 30‑minute TTL · Fetch 7 / 30 / 90‑day history · Export list &amp; full articles (HTML / Markdown / TXT / JSON)
+  Capture short-lived MP keys · 30‑minute TTL · Fetch 7 / 30 / 90‑day history · Export list &amp; full articles (HTML / Markdown / TXT / JSON / Word) · Batch export
 </p>
 
 <p align="center">
@@ -51,7 +51,7 @@ Source repository: [Alexxxxxxxxxxxxy/schinza-wechat-certificate](https://github.
 | **Credential Manager** | Install bundled MITM CA, start local proxy, capture `__biz` / `uin` / `key` / `pass_ticket` from WeChat Desktop; **30‑minute TTL** with renew / copy JSON |
 | **History Articles** | Pull history via `profile_ext?action=getmsg` for **7 / 30 / 90 days**; merge MITM sightings or **manual URL补录** when WeChat omits same‑day later pushes |
 | **List export** | JSON · CSV (Excel) · TSV · Markdown · plain links · title+link |
-| **Article export** | Per-article **HTML** (WeChat layout normalized) · **Markdown** · **TXT** · **JSON** |
+| **Article export** | Per-article or **batch**: **HTML** · **Markdown** · **TXT** · **JSON** · **Word (.docx)** |
 
 All credentials and exports stay under local `data/`. Nothing is uploaded by this app.
 
@@ -148,7 +148,7 @@ Distribute the **whole** `dist\Schinza` folder. Private CA material is required 
 
 **History list:** JSON · CSV · TSV · Markdown · plain links · title+link  
 
-**Single article:** HTML (normalized WeChat layout) · Markdown · TXT · JSON  
+**Single / batch article:** HTML · Markdown · TXT · JSON · Word (.docx)  
 
 ---
 

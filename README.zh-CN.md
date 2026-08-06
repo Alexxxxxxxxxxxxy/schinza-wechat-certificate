@@ -11,7 +11,7 @@
 <p align="center">
   <strong>微信公众号凭证与历史文章 Windows 桌面助手</strong>
   <br />
-  捕获短暂客户端密钥 · 管理 30 分钟有效期 · 拉取近 7 / 30 / 90 天历史 · 列表与正文多格式导出（HTML / Markdown / TXT / JSON）
+  捕获短暂客户端密钥 · 管理 30 分钟有效期 · 拉取近 7 / 30 / 90 天历史 · 列表与正文多格式导出（HTML / Markdown / TXT / JSON / Word）· 批量导出
 </p>
 
 <p align="center">
@@ -51,7 +51,7 @@
 | **凭证管理** | 安装随包 MITM CA、启动本地代理，从微信桌面捕获 `__biz` / `uin` / `key` / `pass_ticket`；每套凭证 **30 分钟**有效，支持续约 / 复制 JSON |
 | **历史文章** | 经 `profile_ext?action=getmsg` 拉取 **近 7 / 30 / 90 天**列表；微信漏掉同日后续推送时，可用抓包目击或 **补录链接** 合并 |
 | **列表导出** | JSON · CSV（Excel）· TSV · Markdown · 纯链接 · 标题+链接 |
-| **正文导出** | 单篇 **HTML**（保留微信排版）· **Markdown** · **TXT** · **JSON** |
+| **正文导出** | 单篇或**批量**：**HTML** · **Markdown** · **TXT** · **JSON** · **Word (.docx)** |
 
 所有凭证与导出仅保存在本机 `data/`，应用不会上传数据。
 
@@ -148,7 +148,7 @@ dist\Schinza\Schinza.exe
 
 **历史列表：** JSON · CSV · TSV · Markdown · 纯链接 · 标题+链接  
 
-**单篇正文：** HTML（规范化微信排版）· Markdown · TXT · JSON  
+**单篇 / 批量正文：** HTML · Markdown · TXT · JSON · Word (.docx)  
 
 ---
 

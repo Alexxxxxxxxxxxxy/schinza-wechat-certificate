@@ -61,6 +61,7 @@ $argsList = @(
   "--hidden-import", "app.history_ranges",
   "--hidden-import", "bs4",
   "--hidden-import", "lxml",
+  "--hidden-import", "docx",
   "--add-data", "mitmproxy-ca.pem;.",
   "--add-data", "app\mitm_addon.py;app",
   "--add-data", "assets\schinza.ico;assets",
