@@ -330,6 +330,12 @@ class CredentialCapture:
         self._last_saved_fp: tuple[str, ...] | None = None
         self._last_sighting_fp: str | None = None
 
+    def reset_merge_state(self) -> None:
+        """Clear merged creds so renew waits for fresh WeChat traffic."""
+        self.cred = {}
+        self._last_saved_fp = None
+        self._last_sighting_fp = None
+
     def request(self, flow) -> None:  # type: ignore[no-untyped-def]
         url = flow.request.pretty_url
         changed = _merge_from_url(url, self.cred)

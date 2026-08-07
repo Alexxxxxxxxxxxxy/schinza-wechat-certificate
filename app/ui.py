@@ -23,10 +23,12 @@ from app.article_reader import (
     write_article_export,
 )
 from app.ca_setup import PROXY_HOST, PROXY_PORT, install_ca_windows, open_p12_in_explorer
+from app.capture_target import expected_biz, resolve_capture_target
 from app.clipboard_watch import ClipboardWatcher
 from app.credentials import (
     credentials_to_json,
     extract_credentials_from_url,
+    normalize_credentials,
     try_parse_credentials,
 )
 from app.history_account_select import pick_label_for_account_id, resolve_account_id
@@ -203,19 +205,19 @@ class AccountCard(ctk.CTkFrame):
         if status == "active" and remain > 0:
             self.timer_lbl.configure(text=_fmt_remain(remain), text_color=COLORS["ok"])
             self.meta_lbl.configure(
-                text=f"有效 · __biz={biz}\n点「续约」可重新打开文章并刷新凭证\n{url}"
+                text=f"有效 · __biz={biz}\n点「续约」后请在微信内刷新该号文章\n{url}"
             )
             self.copy_btn.configure(state="normal")
         elif status == "awaiting":
             self.timer_lbl.configure(text="等待凭证", text_color=COLORS["warn"])
             self.meta_lbl.configure(
-                text="续约/抓包中 · 请在微信桌面打开文章（可再点续约重试）\n" + url
+                text="续约/抓包中 · 请在微信内刷新该公众号文章\n" + url
             )
             self.copy_btn.configure(state="disabled")
         else:
             self.timer_lbl.configure(text="已过期", text_color=COLORS["danger"])
             self.meta_lbl.configure(
-                text=f"已过期 · 点「续约」打开文章并重新抓取凭证 · __biz={biz}\n{url}"
+                text=f"已过期 · 点「续约」后在微信内刷新文章重新抓取 · __biz={biz}\n{url}"
             )
             self.copy_btn.configure(state="disabled")
 
@@ -227,6 +229,8 @@ class CertificateApp(ctk.CTk):
         self.store = AccountStore(root_dir / "data" / "accounts.json")
         self.sightings = SightingsStore(default_sightings_path(root_dir))
         self._pending_capture_id: str | None = None
+        self._bulk_renew_remaining: set[str] = set()
+        self._bulk_renew_total: int = 0
         self._cards: dict[str, AccountCard] = {}
         self._rebuild_job: str | None = None
         self._tab = "credentials"
@@ -620,13 +624,30 @@ class CertificateApp(ctk.CTk):
         wrap.grid_columnconfigure(0, weight=1)
         wrap.grid_rowconfigure(1, weight=1)
 
+        head = ctk.CTkFrame(wrap, fg_color="transparent")
+        head.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        head.grid_columnconfigure(0, weight=1)
+
         ctk.CTkLabel(
-            wrap,
+            head,
             text="已添加公众号",
             font=ctk.CTkFont(family="Microsoft YaHei UI", size=15, weight="bold"),
             text_color=COLORS["text"],
             anchor="w",
-        ).grid(row=0, column=0, sticky="w", pady=(0, 8))
+        ).grid(row=0, column=0, sticky="w")
+
+        ctk.CTkButton(
+            head,
+            text="一键续约全部",
+            width=120,
+            height=32,
+            corner_radius=10,
+            fg_color=COLORS["warn"],
+            hover_color="#ebab6e",
+            text_color="#1a1208",
+            font=ctk.CTkFont(family="Microsoft YaHei UI", size=13, weight="bold"),
+            command=self.renew_all_accounts,
+        ).grid(row=0, column=1, sticky="e")
 
         self.list_frame = ctk.CTkScrollableFrame(
             wrap,
@@ -993,29 +1014,60 @@ class CertificateApp(ctk.CTk):
             ok=True,
         )
 
+    def _clear_bulk_renew(self) -> None:
+        self._bulk_renew_remaining = set()
+        self._bulk_renew_total = 0
+
+    def _bulk_renew_active(self) -> bool:
+        return bool(self._bulk_renew_remaining)
+
     def renew_account(self, account_id: str) -> None:
         row = self.store.get(account_id)
         if not row:
             return
-        url = str(row.get("article_url") or "").strip()
-        if not url or "mp.weixin.qq.com" not in url:
-            self.set_status("该公众号没有可用的文章链接，无法续约打开", ok=False)
+        if not expected_biz(row) and not str(row.get("article_url") or "").strip():
+            self.set_status("该公众号缺少 __biz / 文章链接，无法续约", ok=False)
             return
         if not self._ensure_proxy_for_capture():
             return
 
-        # 续约必须重新抓包，不要复用旧 inbox
-        self.mitm.clear_inbox()
+        self._clear_bulk_renew()
+        # 续约必须重新抓包；不弹系统浏览器，请在微信内刷新已开文章
+        self.mitm.reset_capture_state()
         self.store.set_awaiting(account_id)
         self._pending_capture_id = account_id
         self.watcher.enable()
 
-        # 打开文章链接，便于在系统浏览器/微信中再次触发凭证流量
-        self._open_url(url)
         name = str(row.get("name") or "")
         self.set_status(
-            f"「{name}」续约中：已打开文章链接，代理已启动。"
-            "请确认在微信桌面内打开该公众号文章，等待凭证自动更新。",
+            f"「{name}」续约中：请在微信里刷新该公众号已打开的文章"
+            "（必须刷新才会产生新流量；无需系统浏览器）",
+            ok=True,
+        )
+
+    def renew_all_accounts(self) -> None:
+        rows = [
+            r
+            for r in self.store.list_accounts()
+            if expected_biz(r) or str(r.get("article_url") or "").strip()
+        ]
+        if not rows:
+            self.set_status("没有可续约的公众号", ok=False)
+            return
+        if not self._ensure_proxy_for_capture():
+            return
+
+        self.mitm.reset_capture_state()
+        self._pending_capture_id = None
+        self._bulk_renew_remaining = {str(r["id"]) for r in rows}
+        self._bulk_renew_total = len(self._bulk_renew_remaining)
+        for aid in self._bulk_renew_remaining:
+            self.store.set_awaiting(aid)
+        self.watcher.enable()
+        self.set_status(
+            f"批量续约中（0/{self._bulk_renew_total}）："
+            "请在微信内依次刷新各公众号已打开的文章"
+            "（不刷新不会更新凭证；按 __biz 自动落到对应卡片）",
             ok=True,
         )
 
@@ -1044,7 +1096,9 @@ class CertificateApp(ctk.CTk):
     def delete_account(self, account_id: str) -> None:
         if self._pending_capture_id == account_id:
             self._pending_capture_id = None
-            self.watcher.disable()
+            if not self._bulk_renew_active():
+                self.watcher.disable()
+        self._bulk_renew_remaining.discard(str(account_id))
         self.store.delete(account_id)
         self.set_status("已删除公众号", ok=True)
         self.refresh_history_account_options()
@@ -1083,18 +1137,100 @@ class CertificateApp(ctk.CTk):
         self.after(0, lambda: self._apply_credentials(cred))
 
     def _apply_credentials(self, cred: dict[str, str]) -> bool:
-        target = self._capture_target_id()
+        cred = normalize_credentials(cred)
+        accounts = self.store.list_accounts()
+        bulk = self._bulk_renew_active()
+        # Bulk mode: do not pin pending to first awaiting — route purely by __biz
+        pending_id = None if bulk else self._capture_target_id()
+        result = resolve_capture_target(
+            accounts=accounts,
+            pending_id=pending_id,
+            cred_biz=str(cred.get("__biz") or ""),
+        )
+
+        if result.kind == "unknown":
+            self.mitm.reset_capture_state()
+            if bulk:
+                self.watcher.enable()
+                left = len(self._bulk_renew_remaining)
+                self.set_status(
+                    f"已忽略未登记公众号流量；批量续约还剩 {left} 个，"
+                    "请继续在微信内刷新待续约文章",
+                    ok=False,
+                )
+            elif pending_id:
+                self.store.set_awaiting(pending_id)
+                self._pending_capture_id = pending_id
+                self.watcher.enable()
+                tip = result.pending_name or "目标公众号"
+                self.set_status(
+                    f"已忽略其他公众号流量，请刷新「{tip}」的文章",
+                    ok=False,
+                )
+            else:
+                self.set_status(
+                    "已截获凭证，但还没有待绑定的公众号。请填写名称与链接并点「添加并抓包」。",
+                    ok=False,
+                )
+            return False
+
+        target = result.account_id
         if not target:
-            self.set_status(
-                "已截获凭证，但还没有待绑定的公众号。请填写名称与链接并点「添加并抓包」。",
-                ok=False,
-            )
             return False
         row = self.store.apply_credentials(target, cred)
-        self._pending_capture_id = None
-        self.watcher.disable()
-        name = (row or {}).get("name") or ""
-        self.set_status(f"「{name}」凭证已更新，有效期 {TTL_MINUTES} 分钟", ok=True)
+        name = (row or {}).get("name") or result.target_name
+
+        if bulk:
+            self._bulk_renew_remaining.discard(str(target))
+            done = self._bulk_renew_total - len(self._bulk_renew_remaining)
+            total = self._bulk_renew_total
+            if self._bulk_renew_remaining:
+                self.watcher.enable()
+                self.mitm.reset_capture_state()
+                self.set_status(
+                    f"批量续约 {done}/{total}：已更新「{name}」，"
+                    "请继续刷新其余公众号文章（必须刷新）",
+                    ok=True,
+                )
+            else:
+                self._clear_bulk_renew()
+                self._pending_capture_id = None
+                self.watcher.disable()
+                self.set_status(
+                    f"批量续约完成：共 {total} 个公众号已更新",
+                    ok=True,
+                )
+            self.refresh_history_account_options()
+            return True
+
+        if result.kind == "pending" or (
+            pending_id and str(pending_id) == str(target)
+        ):
+            self._pending_capture_id = None
+            self.watcher.disable()
+            self.set_status(
+                f"「{name}」凭证已更新，有效期 {TTL_MINUTES} 分钟",
+                ok=True,
+            )
+        elif pending_id and str(pending_id) != str(target):
+            self.store.set_awaiting(pending_id)
+            self._pending_capture_id = pending_id
+            self.watcher.enable()
+            self.mitm.reset_capture_state()
+            self.set_status(
+                f"已将「{result.target_name}」续约成功"
+                f"（当前等待的是「{result.pending_name}」）；"
+                f"若还需续约「{result.pending_name}」，请刷新其文章",
+                ok=True,
+            )
+        else:
+            self._pending_capture_id = None
+            self.watcher.disable()
+            self.set_status(
+                f"「{result.target_name}」凭证已更新，有效期 {TTL_MINUTES} 分钟",
+                ok=True,
+            )
+
         self.refresh_history_account_options()
         return True
 
@@ -1846,7 +1982,7 @@ class CertificateApp(ctk.CTk):
     def _tick(self) -> None:
         self.store.mark_expired_if_needed()
         cred = self.mitm.read_new_credentials(consume=False)
-        if cred and self._capture_target_id():
+        if cred and (self._bulk_renew_active() or self._capture_target_id()):
             if self._apply_credentials(cred):
                 self.mitm.ack_inbox()
         rows = {r["id"]: r for r in self.store.list_accounts()}

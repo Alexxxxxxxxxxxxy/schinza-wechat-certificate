@@ -100,7 +100,7 @@ python main.py
 1. **Credential Manager** → **Install CA** → restart WeChat Desktop  
 2. Account name + any article URL → **Add & Capture**  
 3. Open any article from that OA in WeChat Desktop  
-4. Credentials appear (30‑minute TTL). Use **Renew** when expired  
+4. Credentials appear (30‑minute TTL). **Renew** does not open a system browser — refresh the already-open article in WeChat; multi-OA traffic is routed by `__biz`  
 5. **History Articles** → pick range (7 / 30 / 90 days) → **Fetch** → export list or per-article body  
 
 > Prefer **Add & Capture** over starting the proxy alone. Use **补录链接** when you need to add a missing article.

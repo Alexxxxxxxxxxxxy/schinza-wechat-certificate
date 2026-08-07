@@ -33,6 +33,7 @@ class MitmCaptureService:
         self._started = threading.Event()
         self._start_error: str | None = None
         self._running = False
+        self._capture_addon: Any = None
 
     @property
     def running(self) -> bool:
@@ -45,6 +46,16 @@ class MitmCaptureService:
         except Exception:
             pass
         self._last_inbox_mtime = 0.0
+
+    def reset_capture_state(self) -> None:
+        """Clear inbox + in-memory merge so renew waits for fresh WeChat traffic."""
+        self.clear_inbox()
+        addon = self._capture_addon
+        if addon is not None and hasattr(addon, "reset_merge_state"):
+            try:
+                addon.reset_merge_state()
+            except Exception:
+                pass
 
     def reset_inbox_cursor(self) -> None:
         """Allow re-reading the current inbox file (e.g. after binding a pending account)."""
@@ -116,7 +127,9 @@ class MitmCaptureService:
                     with_termlog=False,
                     with_dumper=False,
                 )
-                master.addons.add(CredentialCapture())
+                addon = CredentialCapture()
+                self._capture_addon = addon
+                master.addons.add(addon)
                 self._master = master
                 self._running = True
                 self._started.set()

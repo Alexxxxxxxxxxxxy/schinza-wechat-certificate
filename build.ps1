@@ -60,6 +60,7 @@ $argsList = @(
   "--hidden-import", "app.sightings",
   "--hidden-import", "app.history_ranges",
   "--hidden-import", "app.history_account_select",
+  "--hidden-import", "app.capture_target",
   "--hidden-import", "bs4",
   "--hidden-import", "lxml",
   "--hidden-import", "docx",
