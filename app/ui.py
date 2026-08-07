@@ -29,6 +29,7 @@ from app.credentials import (
     extract_credentials_from_url,
     try_parse_credentials,
 )
+from app.history_account_select import pick_label_for_account_id, resolve_account_id
 from app.history_client import fetch_history_days
 from app.history_export import (
     FORMAT_LABELS,
@@ -238,6 +239,7 @@ class CertificateApp(ctk.CTk):
         self._batch_exporting = False
         self._history_selected: set[str] = set()
         self._account_options: list[tuple[str, str]] = []  # (label, id)
+        self._history_account_id: str | None = None
         self._nav_btns: dict[str, ctk.CTkButton] = {}
 
         ctk.set_appearance_mode("dark")
@@ -681,6 +683,7 @@ class CertificateApp(ctk.CTk):
             text_color=COLORS["text"],
             font=ctk.CTkFont(family="Microsoft YaHei UI", size=13),
             dropdown_font=ctk.CTkFont(family="Microsoft YaHei UI", size=13),
+            command=self._on_hist_account_change,
         )
         self.hist_account_menu.grid(row=2, column=1, sticky="ew", padx=(0, 10), pady=6)
         self.hist_account_menu.set("（暂无有效凭证）")
@@ -1127,31 +1130,55 @@ class CertificateApp(ctk.CTk):
 
     def refresh_history_account_options(self) -> None:
         active = self.store.list_active_accounts()
-        self._account_options = []
+        prev_label = self.hist_account_menu.get()
+        options: list[tuple[str, str]] = []
         labels: list[str] = []
         for row in active:
-            remain = self.store.remaining_seconds(str(row["id"]))
+            aid = str(row["id"])
+            remain = self.store.remaining_seconds(aid)
             label = f"{row.get('name') or '未命名'}（剩余 {_fmt_remain(remain)}）"
-            self._account_options.append((label, str(row["id"])))
+            options.append((label, aid))
             labels.append(label)
+        self._account_options = options
         if not labels:
             labels = ["（暂无有效凭证）"]
+            self._history_account_id = None
             self.hist_account_menu.configure(values=labels)
             self.hist_account_menu.set(labels[0])
             return
-        prev = self.hist_account_menu.get()
+        keep_id = resolve_account_id(
+            options,
+            current_label=prev_label,
+            preferred_id=self._history_account_id,
+        )
+        chosen = pick_label_for_account_id(options, keep_id) or labels[0]
+        self._history_account_id = next(
+            (aid for lb, aid in options if lb == chosen),
+            options[0][1],
+        )
         self.hist_account_menu.configure(values=labels)
-        if prev in labels:
-            self.hist_account_menu.set(prev)
-        else:
-            self.hist_account_menu.set(labels[0])
+        self.hist_account_menu.set(chosen)
+
+    def _on_hist_account_change(self, value: str) -> None:
+        for lb, aid in self._account_options:
+            if lb == value:
+                self._history_account_id = aid
+                return
+        # Countdown may have refreshed between click and callback
+        aid = resolve_account_id(
+            self._account_options,
+            current_label=value,
+            preferred_id=self._history_account_id,
+        )
+        if aid:
+            self._history_account_id = aid
 
     def _selected_history_account_id(self) -> str | None:
-        label = self.hist_account_menu.get()
-        for lb, aid in self._account_options:
-            if lb == label:
-                return aid
-        return None
+        return resolve_account_id(
+            self._account_options,
+            current_label=self.hist_account_menu.get(),
+            preferred_id=self._history_account_id,
+        )
 
     def _fetch_btn_label(self) -> str:
         return f"拉取近{self._history_days}天"
