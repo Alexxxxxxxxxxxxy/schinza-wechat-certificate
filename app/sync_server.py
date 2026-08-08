@@ -9,7 +9,9 @@ import requests
 
 SOURCE_SCHOOL = "学校"
 SOURCE_PREMIUM = "优质"
-BATCH_LIMIT = 50
+# 服务端逐条校验凭证较慢（每条约 5-8s），且网关层约 30s 超时：
+# 批次过大（如 50）会导致网关 504。3 条/批实测约 17s，能稳定通过。
+BATCH_LIMIT = 3
 _CSV_COLUMNS = ("school_id", "school_name", "nickname", "source")
 
 
@@ -98,13 +100,15 @@ def chunk_accounts(
 def upload_credentials_batch(
     base_url: str,
     accounts: list[dict[str, Any]],
-    timeout: int = 15,
+    timeout: int = 60,
 ) -> dict[str, Any]:
     """POST 一批凭证到开放接口，返回服务端 JSON。
 
     显式禁用 HTTP(S) 代理：本机抓包代理（mitmproxy）会把请求
     劫持到 127.0.0.1:8088 并用私有 CA 签名，导致 SSL 校验失败；
     同步目标为公网接口，必须直连。
+
+    服务端逐条校验较慢（每条约 5-8s），timeout 需覆盖整批耗时。
     """
     base = (base_url or "").strip().rstrip("/")
     url = f"{base}/api/wechat/internal/mitm-credentials"

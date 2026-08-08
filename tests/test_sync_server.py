@@ -80,6 +80,15 @@ def test_chunk_accounts_splits_at_limit():
     assert chunk_accounts(payloads[:30], size=50) == [payloads[:30]]
 
 
+def test_default_batch_limit_is_small_for_slow_server():
+    # 服务端逐条校验慢，默认批次必须足够小以避开网关 30s 超时
+    from app.sync_server import BATCH_LIMIT
+
+    assert BATCH_LIMIT == 3
+    chunks = chunk_accounts([{"__biz": f"b{i}"} for i in range(10)])
+    assert [len(c) for c in chunks] == [3, 3, 3, 1]
+
+
 def test_build_account_payload_bad_school_id_returns_none():
     rows = [{"school_id": "abc", "school_name": "中山大学", "nickname": "鸭大情报局", "source": "学校"}]
     assert build_account_payload(_account("鸭大情报局"), rows) is None
@@ -113,7 +122,7 @@ def test_upload_credentials_batch_posts_correct_payload(monkeypatch):
     assert calls["url"] == "https://example.com/base/api/wechat/internal/mitm-credentials"
     assert calls["json"] == {"accounts": accounts}
     assert calls["headers"]["Content-Type"] == "application/json"
-    assert calls["timeout"] == 15
+    assert calls["timeout"] == 60
     # 同步目标是公网接口，必须绕过本机抓包代理，避免 SSL 校验失败
     assert calls["proxies"] == {"http": None, "https": None}
 

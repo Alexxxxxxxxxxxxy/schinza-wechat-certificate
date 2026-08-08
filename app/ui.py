@@ -59,6 +59,7 @@ from app.updater import (
     is_newer_than,
 )
 from app.sync_server import (
+    BATCH_LIMIT,
     build_account_payload,
     chunk_accounts,
     parse_school_accounts_csv,
@@ -265,6 +266,7 @@ class CertificateApp(ctk.CTk):
         self._sync_accounts_path = self.root_dir / "data" / "school_accounts.json"
         self._sync_log_seq = 0
         self._sync_uploading = False
+        self._sync_paused_proxy = False
         self._sync_ui_queue: queue.Queue[tuple[str, str | None] | tuple[None, None]] = (
             queue.Queue()
         )
@@ -1285,6 +1287,19 @@ class CertificateApp(ctk.CTk):
         self._save_sync_config()
         self.sync_upload_btn.configure(state="disabled")
         self._sync_uploading = True
+
+        # 抓包代理会把上传请求劫持到本地并导致 SSL 校验失败 / 卡住，
+        # 同步属于公网直连操作：先暂停代理并还原系统代理，同步完成后再恢复。
+        paused = False
+        if self.mitm.running:
+            ok, msg = self.mitm.stop(restore_proxy=True)
+            if ok:
+                paused = True
+                self._append_sync_log(f"已暂停抓包代理：{msg.splitlines()[0]}", COLORS["warn"])
+            else:
+                self._append_sync_log(f"暂停代理失败（继续同步）：{msg.splitlines()[0]}", COLORS["warn"])
+        self._sync_paused_proxy = paused
+
         self.set_status(f"开始同步 {len(matched)} 条凭证…", ok=True)
         self._append_sync_log(f"匹配 {len(matched)} 条，未匹配 {len(unmatched)} 条，开始上传")
         if no_creds:
@@ -1300,12 +1315,18 @@ class CertificateApp(ctk.CTk):
         q.put(("__start__", None))
 
         def worker() -> None:
-            batches = chunk_accounts(matched, size=50)
+            batches = chunk_accounts(matched, size=BATCH_LIMIT)
             accepted_total = 0
             failed_total = 0
             try:
                 for idx, batch in enumerate(batches, start=1):
-                    q.put((f"[{idx}/{len(batches)}] 正在上传 {len(batch)} 条…", COLORS["muted"]))
+                    q.put(
+                        (
+                            f"[{idx}/{len(batches)}] 正在上传 {len(batch)} 条"
+                            f"（服务端逐条校验，每条约 5-8 秒，请耐心等待）…",
+                            COLORS["muted"],
+                        )
+                    )
                     try:
                         resp = upload_credentials_batch(base, batch)
                         accepted = resp.get("accepted") if isinstance(resp, dict) else None
@@ -1362,6 +1383,19 @@ class CertificateApp(ctk.CTk):
                 if msg == "__finish__":
                     self._sync_uploading = False
                     self.sync_upload_btn.configure(state="normal")
+                    # 同步期间暂停了抓包代理，完成后恢复
+                    if self._sync_paused_proxy:
+                        self._sync_paused_proxy = False
+                        ok, rmsg = self.mitm.start(set_system_proxy=True)
+                        if ok:
+                            self._append_sync_log(
+                                f"已恢复抓包代理：{rmsg.splitlines()[0]}", COLORS["ok"]
+                            )
+                        else:
+                            self._append_sync_log(
+                                f"恢复抓包代理失败（可在凭证页手动开启）：{rmsg.splitlines()[0]}",
+                                COLORS["danger"],
+                            )
                     self.set_status("同步完成", ok=(color == "True"))
                     continue
                 self._append_sync_log(msg, color)

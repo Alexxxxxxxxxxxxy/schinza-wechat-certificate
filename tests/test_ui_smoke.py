@@ -80,3 +80,23 @@ def test_matched_payloads_buckets(app) -> None:
     assert no_creds == ["无凭证号"]
     assert unmatched == ["有凭证没匹配"]
     assert bad_school_id == ["坏ID号"]
+
+
+def test_sync_upload_finish_restores_paused_proxy(app, monkeypatch) -> None:
+    """同步上传期间暂停的抓包代理，在 __finish__ 时自动恢复。"""
+    started = []
+
+    def fake_start(set_system_proxy=True):
+        started.append(set_system_proxy)
+        return True, "抓包代理已启动 127.0.0.1:8088"
+
+    monkeypatch.setattr(app.mitm, "start", fake_start)
+
+    app._sync_uploading = True
+    app._sync_paused_proxy = True
+    app._sync_ui_queue.put(("__finish__", "True"))
+    app._pump_sync_queue()
+
+    assert started == [True]
+    assert app._sync_paused_proxy is False
+    assert app._sync_uploading is False
