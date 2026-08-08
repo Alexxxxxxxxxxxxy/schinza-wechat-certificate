@@ -6,7 +6,7 @@ import re
 import threading
 import webbrowser
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from tkinter import filedialog
 
 import customtkinter as ctk
@@ -50,6 +50,11 @@ from app.history_ranges import (
 from app.mitm_capture import MitmCaptureService
 from app.sightings import SightingsStore, default_sightings_path
 from app.store import TTL_MINUTES, AccountStore
+from app.updater import (
+    RELEASE_URL,
+    check_update_async,
+    is_newer_than,
+)
 
 # ui-ux-pro-max: exaggerated minimal dark utility — slate + run green
 COLORS = {
@@ -245,6 +250,7 @@ class CertificateApp(ctk.CTk):
         self._account_options: list[tuple[str, str]] = []  # (label, id)
         self._history_account_id: str | None = None
         self._nav_btns: dict[str, ctk.CTkButton] = {}
+        self._updating = False
 
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("dark-blue")
@@ -377,7 +383,23 @@ class CertificateApp(ctk.CTk):
             btn.grid(row=i + 1, column=0, sticky="ew", padx=12, pady=4)
             self._nav_btns[key] = btn
 
-        side.grid_rowconfigure(3, weight=1)
+        self.check_update_btn = ctk.CTkButton(
+            side,
+            text="检查更新",
+            height=36,
+            corner_radius=10,
+            fg_color=COLORS["nav_idle"],
+            hover_color=COLORS["border"],
+            text_color=COLORS["muted"],
+            font=ctk.CTkFont(family="Microsoft YaHei UI", size=13),
+            anchor="w",
+            command=self.manual_check_update,
+        )
+        self.check_update_btn.grid(
+            row=3, column=0, sticky="ew", padx=12, pady=(4, 12)
+        )
+
+        side.grid_rowconfigure(4, weight=1)
 
     def _resolve_asset(self, name: str) -> Path | None:
         import sys
@@ -977,6 +999,143 @@ class CertificateApp(ctk.CTk):
         elif ok is False:
             color = COLORS["danger"]
         self.status_lbl.configure(text=text, text_color=color)
+
+    def manual_check_update(self) -> None:
+        if self._updating:
+            self.set_status("正在检查更新，请稍候…", ok=True)
+            return
+        self._updating = True
+        self.check_update_btn.configure(state="disabled", text="检查中…")
+        self.set_status("正在检查更新…", ok=True)
+        check_update_async(
+            on_result=lambda newer, msg, info: self.after(
+                0, lambda: self._on_update_result(newer, msg, info)
+            ),
+        )
+
+    def _on_update_result(
+        self,
+        newer: bool,
+        msg: str,
+        info,
+    ) -> None:
+        self._updating = False
+        if hasattr(self, "check_update_btn"):
+            self.check_update_btn.configure(state="normal", text="检查更新")
+        if not info:
+            self.set_status(msg, ok=False)
+            self._show_update_dialog("检查更新", "无法检查更新", msg, ok=False)
+            return
+        if newer:
+            self.set_status(f"{msg}：{info.body[:60]}", ok=True)
+            self._show_update_dialog(
+                "发现新版本",
+                f"发现新版本 {info.version}",
+                (info.body or "有可用更新。") + "\n\n是否前往 GitHub 下载？",
+                ok=True,
+                action_label="前往下载",
+                on_action=lambda: self._open_url(info.release_url or RELEASE_URL),
+            )
+        else:
+            self.set_status(msg, ok=True)
+            self._show_update_dialog(
+                "检查更新",
+                "已是最新版",
+                f"当前已是最新版本（{msg.split('（')[-1].rstrip('）')}）。",
+                ok=True,
+            )
+
+    def _show_update_dialog(
+        self,
+        title: str,
+        headline: str,
+        body: str,
+        *,
+        ok: bool,
+        action_label: str = "确定",
+        on_action: Callable[[], None] | None = None,
+    ) -> None:
+        """Themed modal for检查更新 — matches app COLORS (like 补录链接)."""
+        dlg = ctk.CTkToplevel(self)
+        dlg.title(title)
+        dlg.configure(fg_color=COLORS["bg"])
+        dlg.geometry("480x300")
+        dlg.minsize(440, 260)
+        dlg.transient(self)
+        dlg.grab_set()
+        dlg.resizable(False, False)
+
+        try:
+            self.update_idletasks()
+            x = self.winfo_rootx() + (self.winfo_width() - 480) // 2
+            y = self.winfo_rooty() + (self.winfo_height() - 300) // 2
+            dlg.geometry(f"+{max(0, x)}+{max(0, y)}")
+        except Exception:
+            pass
+
+        card = ctk.CTkFrame(
+            dlg,
+            fg_color=COLORS["panel"],
+            corner_radius=16,
+            border_width=1,
+            border_color=COLORS["border"],
+        )
+        card.pack(fill="both", expand=True, padx=16, pady=16)
+        card.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            card,
+            text=headline,
+            font=ctk.CTkFont(family="Microsoft YaHei UI", size=16, weight="bold"),
+            text_color=COLORS["ok"] if ok else COLORS["danger"],
+            anchor="w",
+        ).grid(row=0, column=0, sticky="ew", padx=18, pady=(16, 4))
+
+        ctk.CTkLabel(
+            card,
+            text=body,
+            font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
+            text_color=COLORS["muted"],
+            anchor="w",
+            justify="left",
+            wraplength=420,
+        ).grid(row=1, column=0, sticky="ew", padx=18, pady=(0, 12))
+
+        btns = ctk.CTkFrame(card, fg_color="transparent")
+        btns.grid(row=2, column=0, sticky="e", padx=18, pady=(8, 16))
+
+        def close() -> None:
+            dlg.grab_release()
+            dlg.destroy()
+
+        if on_action is not None:
+            ctk.CTkButton(
+                btns,
+                text=action_label,
+                width=96,
+                height=34,
+                corner_radius=10,
+                fg_color=COLORS["accent"],
+                hover_color=COLORS["accent_hover"],
+                text_color="#0b1412",
+                font=ctk.CTkFont(
+                    family="Microsoft YaHei UI", size=13, weight="bold"
+                ),
+                command=lambda: (on_action(), close()),
+            ).pack(side="right", padx=(8, 0))
+
+        ctk.CTkButton(
+            btns,
+            text="关闭",
+            width=72,
+            height=34,
+            corner_radius=10,
+            fg_color=COLORS["border"],
+            hover_color="#3a4a5e",
+            text_color=COLORS["text"],
+            font=ctk.CTkFont(family="Microsoft YaHei UI", size=13),
+            command=close,
+        ).pack(side="right")
 
     def set_hist_status(self, text: str, *, ok: bool | None = None) -> None:
         color = COLORS["muted"]
