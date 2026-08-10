@@ -38,7 +38,7 @@
 
 **https://github.com/Alexxxxxxxxxxxxy/schinza-wechat-certificate/releases**
 
-1. 打开最新 Release（如 `schinza:1.8.5`）
+1. 打开最新 Release（如 `schinza:1.8.6`）
 2. 下载压缩包并解压**整个** `Schinza` 文件夹
 3. 运行 `Schinza.exe`（请勿只拷贝单个 `.exe`，需保留 `_internal/` 等依赖）
 

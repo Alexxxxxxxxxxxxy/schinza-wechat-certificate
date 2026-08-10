@@ -529,9 +529,11 @@ def fetch_history_days(
     days: int | None = 7,
     max_pages: int = DEFAULT_MAX_PAGES,
     count: int = DEFAULT_PAGE_COUNT,
-    sleep_s: float = 1.2,
+    sleep_s: float = 1.0,
+    timeout: float = 20.0,
     on_progress: ProgressCb | None = None,
     sightings: list[dict[str, Any]] | None = None,
+    should_cancel: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     """Paginate getmsg and keep articles with publish_ts within the last ``days``.
 
@@ -563,11 +565,32 @@ def fetch_history_days(
     biz = str(cred.get("__biz") or "").strip()
 
     page_limit = max(1, int(max_pages))
+    t0 = time.time()
     for i in range(page_limit):
+        if should_cancel and should_cancel():
+            partial = merge_articles_with_sightings(
+                articles, sightings or [], cutoff_ts=cutoff, biz=biz
+            )
+            return {
+                "ok": False,
+                "cancelled": True,
+                "error": "已取消",
+                "articles": partial,
+                "pages": pages,
+                "days": days,
+                "cutoff_ts": cutoff,
+                "warning": "",
+                "merged_sightings": max(0, len(partial) - len(_dedupe(articles))),
+            }
         if on_progress:
-            on_progress(f"正在拉取第 {i + 1} 页（已收录 {len(articles)} 篇）…")
+            elapsed = int(time.time() - t0)
+            on_progress(
+                f"正在拉取第 {i + 1} 页（已收录 {len(articles)} 篇 · 已用 {elapsed}s）…"
+            )
         try:
-            page = fetch_getmsg_page(cred, offset=offset, count=count, session=sess)
+            page = fetch_getmsg_page(
+                cred, offset=offset, count=count, session=sess, timeout=timeout
+            )
         except Exception as exc:  # noqa: BLE001 - never swallow into 未知错误
             page = {
                 "ok": False,

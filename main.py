@@ -38,9 +38,50 @@ def _prepare_dll_search(root: Path, res: Path) -> None:
     os.environ["PATH"] = prefix + ";" + os.environ.get("PATH", "")
 
 
+def _ensure_stdio(root: Path) -> None:
+    """Windowed (--windowed) exes run with sys.stdout/sys.stderr == None.
+
+    Any dependency that calls print() / sys.stderr.write() at import then dies
+    with ``'NoneType' object has no attribute 'write'`` (reported on Windows
+    VMs). Redirect both to ``data/app.log`` so imports are safe and future
+    startup errors are visible.
+    """
+    log_dir = root / "data"
+    try:
+        log_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        log_dir = root
+    try:
+        fh = open(log_dir / "app.log", "a", encoding="utf-8", buffering=1)
+    except Exception:
+        fh = open(os.devnull, "w", encoding="utf-8")
+    if sys.stdout is None:
+        sys.stdout = fh
+    if sys.stderr is None:
+        sys.stderr = fh
+
+
+def _show_fatal(title: str, exc: BaseException) -> None:
+    import traceback
+
+    body = f"{title}\n\n{exc}\n\n{traceback.format_exc()}"
+    try:
+        import ctypes
+
+        ctypes.windll.user32.MessageBoxW(  # type: ignore[attr-defined]
+            0,
+            body,
+            "Schinza 凭证助手",
+            0x10,
+        )
+    except Exception:
+        print(body, file=sys.stderr)
+
+
 def main() -> int:
     root = _root_dir()
     res = _resource_dir()
+    _ensure_stdio(root)
     _prepare_dll_search(root, res)
     for p in (root, res):
         if str(p) not in sys.path:
@@ -70,9 +111,16 @@ def main() -> int:
             print("SSL load failed:", exc, file=sys.stderr)
         return 2
 
-    from app.ui import run_app
-
-    run_app(root)
+    try:
+        from app.ui import run_app
+    except Exception as exc:  # noqa: BLE001 - show the real startup error
+        _show_fatal("程序启动失败（导入界面模块出错）", exc)
+        return 3
+    try:
+        run_app(root)
+    except Exception as exc:  # noqa: BLE001 - keep windowed errors visible
+        _show_fatal("程序运行出错", exc)
+        return 4
     return 0
 
 

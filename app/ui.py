@@ -273,6 +273,7 @@ class CertificateApp(ctk.CTk):
         self._history_account_name: str = ""
         self._history_cred: dict[str, Any] = {}
         self._history_fetching = False
+        self._history_cancel = False
         self._article_exporting = False
         self._batch_exporting = False
         self._history_selected: set[str] = set()
@@ -2227,6 +2228,11 @@ class CertificateApp(ctk.CTk):
         if not self._history_fetching:
             self.hist_fetch_btn.configure(text=self._fetch_btn_label())
 
+    def cancel_history_fetch(self) -> None:
+        """请求取消正在进行的拉取（「全部」模式大翻页时避免看起来卡死）。"""
+        self._history_cancel = True
+        self.set_hist_status("正在取消拉取…", ok=True)
+
     def start_history_fetch(self) -> None:
         if self._history_fetching:
             return
@@ -2257,8 +2263,11 @@ class CertificateApp(ctk.CTk):
             self.set_hist_status("正在拉取历史文章…", ok=True)
 
         self._history_fetching = True
+        self._history_cancel = False
         self._history_cred = cred
-        self.hist_fetch_btn.configure(state="disabled", text="拉取中…")
+        self.hist_fetch_btn.configure(
+            state="normal", text="取消拉取", command=self.cancel_history_fetch
+        )
         name = str(row.get("name") or "")
         biz = str(cred.get("__biz") or row.get("biz") or "").strip()
         self.sightings.load()
@@ -2275,6 +2284,7 @@ class CertificateApp(ctk.CTk):
                     max_pages=100,
                     on_progress=progress,
                     sightings=sightings,
+                    should_cancel=lambda: self._history_cancel,
                 )
             except Exception as exc:  # noqa: BLE001
                 result = {"ok": False, "error": describe_exception(exc), "articles": []}
@@ -2284,7 +2294,15 @@ class CertificateApp(ctk.CTk):
 
     def _on_history_done(self, account_name: str, result: dict[str, Any]) -> None:
         self._history_fetching = False
-        self.hist_fetch_btn.configure(state="normal", text=self._fetch_btn_label())
+        self.hist_fetch_btn.configure(
+            state="normal", text=self._fetch_btn_label(), command=self.start_history_fetch
+        )
+        if result.get("cancelled"):
+            self.set_hist_status(
+                f"已取消拉取（已展示部分结果 {len(list(result.get('articles') or []))} 篇）",
+                ok=False,
+            )
+            return
         articles = list(result.get("articles") or [])
         self._history_articles = articles
         self._history_account_name = account_name
