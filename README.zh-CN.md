@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <strong>微信公众号凭证与历史文章 Windows 桌面助手</strong>
+  <strong>微信公众号凭证与历史文章 Windows / macOS 桌面助手</strong>
   <br />
   捕获短暂客户端密钥 · 管理 30 分钟有效期 · 拉取近 7 / 30 / 90 天 / 全部 / 自定义天数历史 · 列表与正文多格式导出（HTML / Markdown / TXT / JSON / Word）· 批量导入（CSV/TXT）· 批量导出
 </p>
@@ -17,7 +17,7 @@
 <p align="center">
   <a href="https://github.com/Alexxxxxxxxxxxxy/schinza-wechat-certificate/releases"><img src="https://img.shields.io/badge/下载-Releases-22C55E?style=flat-square" alt="Download" /></a>
   <a href="#开源协议"><img src="https://img.shields.io/badge/License-MIT-3db89a?style=flat-square" alt="MIT License" /></a>
-  <a href="#运行环境"><img src="https://img.shields.io/badge/Platform-Windows%2010%2F11-1a212b?style=flat-square" alt="Windows" /></a>
+  <a href="#运行环境"><img src="https://img.shields.io/badge/Platform-Windows%2010%2F11%20%7C%20macOS%2012%2B-1a212b?style=flat-square" alt="Platform" /></a>
   <a href="#运行环境"><img src="https://img.shields.io/badge/Python-3.11%2B-3776AB?style=flat-square" alt="Python" /></a>
   <img src="https://img.shields.io/badge/UI-CustomTkinter-222b38?style=flat-square" alt="CustomTkinter" />
 </p>
@@ -74,14 +74,17 @@
 
 ## 运行环境
 
-- Windows 10 / 11（x64）
-- 微信**桌面版**（用于凭证捕获）
+- **Windows** 10 / 11（x64）
+- **macOS** 12+（Apple Silicon / Intel，源码运行；打包产物当前为 arm64）
+- 微信**桌面版**（用于凭证捕获，Windows / macOS 均已实测）
 - Python **3.11+**（开发 / 打包）
-- 打包时需要 Python/conda 环境中的 OpenSSL DLL（`libssl` / `libcrypto`）
+- Windows 打包时需要 Python/conda 环境中的 OpenSSL DLL（`libssl` / `libcrypto`）；macOS 打包不需要额外 DLL
 
 ---
 
 ## 快速开始（源码）
+
+**Windows：**
 
 ```powershell
 git clone https://github.com/Alexxxxxxxxxxxxy/schinza-wechat-certificate.git
@@ -96,6 +99,23 @@ pip install -r requirements.txt
 
 python main.py
 ```
+
+**macOS：**
+
+```bash
+git clone https://github.com/Alexxxxxxxxxxxxy/schinza-wechat-certificate.git
+cd schinza-wechat-certificate
+
+python3 -m venv .venv-mac
+.venv-mac/bin/pip install -r requirements.txt
+
+# 可选：复制完整 mitmproxy CA（含私钥）用于抓包/打包
+# 推荐：~/.mitmproxy/mitmproxy-ca.pem
+
+.venv-mac/bin/python main.py
+```
+
+> macOS 上首次「安装 CA 证书」会调用 `security` 命令，可能弹出系统密码框（输入本机密码即可）；代理设置与恢复使用 `networksetup`（自动识别当前网络服务）。
 
 ### 首次抓包流程
 
@@ -152,6 +172,20 @@ dist\Schinza\Schinza.exe
 
 请分发**整个** `dist\Schinza` 文件夹。构建可抓包二进制需要带私钥的 CA — **切勿将私钥提交到公开仓库**。
 
+## 打包 macOS 发行版
+
+```bash
+./build_mac.sh
+```
+
+```text
+dist/Schinza.app
+```
+
+脚本会：创建 `.venv-mac` 虚拟环境 → 从 `~/.mitmproxy` 复制 CA → 用 `sips` + `iconutil` 生成 `.icns` 图标 → PyInstaller 打包为 `Schinza.app`。构建可抓包二进制需要带私钥的 CA — **切勿将私钥提交到公开仓库**。
+
+> 当前打包产物为 **Apple Silicon (arm64)** 单架构。未签名 .app 在他人机器上首次打开需「右键 → 打开」绕过 Gatekeeper；正式分发建议使用 Apple Developer ID 签名 + 公证（Notarization）。
+
 ---
 
 ## 目录结构
@@ -173,6 +207,9 @@ dist\Schinza\Schinza.exe
 ├── tests/
 ├── main.py
 ├── build.ps1
+├── build_mac.sh
+├── Schinza.spec
+├── Schinza-mac.spec
 ├── requirements.txt
 ├── LICENSE
 ├── README.md
@@ -221,7 +258,7 @@ python -m pip install -r requirements.txt
 python main.py
 ```
 
-欢迎 PR。请勿提交 `data/*.json`、`dist/`、`.venv/` 或 CA 私钥。
+欢迎 PR。请勿提交 `data/*.json`、`dist/`、`.venv/`、`.venv-mac/` 或 CA 私钥。
 
 ---
 

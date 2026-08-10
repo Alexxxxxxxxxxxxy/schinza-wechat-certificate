@@ -6,6 +6,7 @@ dist/
 build/
 *.spec
 !Schinza.spec
+!Schinza-mac.spec
 *.spec.bak
 *.log
 .DS_Store

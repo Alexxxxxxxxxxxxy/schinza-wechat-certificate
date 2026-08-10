@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <strong>Windows desktop helper for WeChat Official Account credentials &amp; history</strong>
+  <strong>Windows / macOS desktop helper for WeChat Official Account credentials &amp; history</strong>
   <br />
   Capture short-lived MP keys · 30‑minute TTL · Fetch 7 / 30 / 90‑day, all, or custom‑day history · Export list &amp; full articles (HTML / Markdown / TXT / JSON / Word) · Batch import (CSV/TXT) · Batch export
 </p>
@@ -17,7 +17,7 @@
 <p align="center">
   <a href="https://github.com/Alexxxxxxxxxxxxy/schinza-wechat-certificate/releases"><img src="https://img.shields.io/badge/Download-Releases-22C55E?style=flat-square" alt="Download" /></a>
   <a href="#license"><img src="https://img.shields.io/badge/License-MIT-3db89a?style=flat-square" alt="MIT License" /></a>
-  <a href="#requirements"><img src="https://img.shields.io/badge/Platform-Windows%2010%2F11-1a212b?style=flat-square" alt="Windows" /></a>
+  <a href="#requirements"><img src="https://img.shields.io/badge/Platform-Windows%2010%2F11%20%7C%20macOS%2012%2B-1a212b?style=flat-square" alt="Platform" /></a>
   <a href="#requirements"><img src="https://img.shields.io/badge/Python-3.11%2B-3776AB?style=flat-square" alt="Python" /></a>
   <img src="https://img.shields.io/badge/UI-CustomTkinter-222b38?style=flat-square" alt="CustomTkinter" />
 </p>
@@ -48,7 +48,7 @@ Source repository: [Alexxxxxxxxxxxxy/schinza-wechat-certificate](https://github.
 
 ## Overview
 
-**Schinza** is an open-source Windows desktop tool for local WeChat Official Account (公众号) ops:
+**Schinza** is an open-source Windows / macOS desktop tool for local WeChat Official Account (公众号) ops:
 
 | Module | What it does |
 |--------|----------------|
@@ -74,14 +74,17 @@ Sidebar navigation (dark slate + green accent):
 
 ## Requirements
 
-- Windows 10 / 11 (x64)
-- WeChat **Desktop** (for credential capture)
+- **Windows** 10 / 11 (x64)
+- **macOS** 12+ (Apple Silicon / Intel; source run — built bundle is currently arm64)
+- WeChat **Desktop** (for credential capture; verified on both Windows & macOS)
 - Python **3.11+** (development / build)
-- For packaging: OpenSSL DLLs from your Python/conda env (`libssl` / `libcrypto`)
+- For Windows packaging: OpenSSL DLLs from your Python/conda env (`libssl` / `libcrypto`); macOS packaging needs no extra DLLs
 
 ---
 
 ## Quick start (from source)
+
+**Windows:**
 
 ```powershell
 git clone https://github.com/Alexxxxxxxxxxxxy/schinza-wechat-certificate.git
@@ -96,6 +99,23 @@ pip install -r requirements.txt
 
 python main.py
 ```
+
+**macOS:**
+
+```bash
+git clone https://github.com/Alexxxxxxxxxxxxy/schinza-wechat-certificate.git
+cd schinza-wechat-certificate
+
+python3 -m venv .venv-mac
+.venv-mac/bin/pip install -r requirements.txt
+
+# Optional: full mitmproxy CA (with private key) for capture/packaging
+# Prefer: ~/.mitmproxy/mitmproxy-ca.pem
+
+.venv-mac/bin/python main.py
+```
+
+> On macOS, the first **Install CA** uses the `security` command and may prompt for your login password; system proxy setup/restore uses `networksetup` (the active network service is detected automatically).
 
 ### First-time capture flow
 
@@ -156,6 +176,20 @@ dist\Schinza\Schinza.exe
 
 Distribute the **whole** `dist\Schinza` folder. Private CA material is required for a capture-capable binary — **never commit private keys**.
 
+## Build macOS release
+
+```bash
+./build_mac.sh
+```
+
+```text
+dist/Schinza.app
+```
+
+The script creates a `.venv-mac` virtualenv → copies the CA from `~/.mitmproxy` → generates `.icns` via `sips` + `iconutil` → runs PyInstaller to produce `Schinza.app`. Private CA material is required for a capture-capable binary — **never commit private keys**.
+
+> The built bundle is currently **Apple Silicon (arm64)** only. Unsigned `.app` binaries need "right-click → Open" on other machines to bypass Gatekeeper; for wide distribution, sign with an Apple Developer ID and notarize.
+
 ---
 
 ## Project layout
@@ -177,6 +211,9 @@ Distribute the **whole** `dist\Schinza` folder. Private CA material is required 
 ├── tests/
 ├── main.py
 ├── build.ps1
+├── build_mac.sh
+├── Schinza.spec
+├── Schinza-mac.spec
 ├── requirements.txt
 ├── LICENSE
 ├── README.md
@@ -225,7 +262,7 @@ python -m pip install -r requirements.txt
 python main.py
 ```
 
-Contributions welcome via PR. Do not commit `data/*.json`, `dist/`, `.venv/`, or CA private keys.
+Contributions welcome via PR. Do not commit `data/*.json`, `dist/`, `.venv/`, `.venv-mac/`, or CA private keys.
 
 ---
 
