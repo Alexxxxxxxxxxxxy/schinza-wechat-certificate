@@ -15,6 +15,7 @@ from urllib.parse import parse_qs, unquote, urlencode, urlparse, urlunparse
 
 import requests
 
+from app.errors import describe_exception, wechat_error_hint
 from app.history_ranges import range_text
 
 GETMSG_URL = "https://mp.weixin.qq.com/mp/profile_ext"
@@ -49,13 +50,6 @@ def validate_credentials(cred: dict[str, Any]) -> tuple[bool, str]:
     if missing:
         return False, f"缺少字段: {', '.join(missing)}"
     return True, ""
-
-
-def describe_exception(exc: Exception) -> str:
-    """Never return an empty error message (requests exceptions often have '')."""
-    msg = str(exc).strip()
-    name = type(exc).__name__
-    return f"{name}: {msg}" if msg else name
 
 
 def _network_error(exc: Exception) -> str:
@@ -253,7 +247,7 @@ def parse_getmsg_response(payload: dict[str, Any]) -> dict[str, Any]:
     if ret not in (0, "0") and errmsg != "ok":
         return {
             "ok": False,
-            "error": errmsg or f"ret={ret}",
+            "error": wechat_error_hint(ret, errmsg),
             "articles": [],
             "can_continue": False,
             "next_offset": None,

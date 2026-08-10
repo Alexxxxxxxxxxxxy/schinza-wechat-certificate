@@ -5,6 +5,8 @@ Formats: html (normalized WeChat layout), markdown, txt, json, word (.docx).
 
 from __future__ import annotations
 
+from app.errors import describe_exception
+
 import html
 import io
 import json
@@ -721,7 +723,7 @@ def batch_export_articles(
             ok_n += 1
         except Exception as exc:  # noqa: BLE001
             failed_n += 1
-            errors.append(f"{title}: {exc}")
+            errors.append(f"{title}: {describe_exception(exc)}")
 
     return {
         "ok": ok_n,

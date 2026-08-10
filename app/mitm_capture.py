@@ -23,10 +23,10 @@ class MitmCaptureService:
 
     def __init__(self, app_root: Path) -> None:
         self.app_root = app_root
-        self.inbox = app_root / "data" / "capture_inbox.json"
+        self.inbox = app_root / "data" / "capture_inbox.jsonl"
         self._lock = threading.RLock()
         self._proxy_backup: dict[str, Any] | None = None
-        self._last_inbox_mtime: float = 0.0
+        self._inbox_offset: int = 0
         self._thread: threading.Thread | None = None
         self._master: Any = None
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -45,7 +45,7 @@ class MitmCaptureService:
                 self.inbox.unlink()
         except Exception:
             pass
-        self._last_inbox_mtime = 0.0
+        self._inbox_offset = 0
 
     def reset_capture_state(self) -> None:
         """Clear inbox + in-memory merge so renew waits for fresh WeChat traffic."""
@@ -59,40 +59,59 @@ class MitmCaptureService:
 
     def reset_inbox_cursor(self) -> None:
         """Allow re-reading the current inbox file (e.g. after binding a pending account)."""
-        self._last_inbox_mtime = 0.0
+        self._inbox_offset = 0
 
     def ack_inbox(self) -> None:
         """Mark current inbox as consumed after credentials were applied."""
         try:
             if self.inbox.is_file():
-                self._last_inbox_mtime = self.inbox.stat().st_mtime
+                self._inbox_offset = self.inbox.stat().st_size
         except Exception:
             pass
 
-    def read_new_credentials(self, *, consume: bool = True) -> dict[str, str] | None:
+    def read_new_credentials(self, *, consume: bool = True) -> list[dict[str, str]]:
+        """Read all new credential entries from the JSONL inbox.
+
+        The addon APPENDS one JSON object per line, so a burst of captures
+        (multi-window renew) is never lost to last-write-wins.
+        """
         if not self.inbox.is_file():
-            return None
+            return []
         try:
-            mtime = self.inbox.stat().st_mtime
+            size = self.inbox.stat().st_size
         except Exception:
-            return None
-        if mtime <= self._last_inbox_mtime:
-            return None
+            return []
+        if size <= self._inbox_offset:
+            return []
         try:
-            data = json.loads(self.inbox.read_text(encoding="utf-8"))
+            with self.inbox.open("r", encoding="utf-8") as fh:
+                fh.seek(self._inbox_offset)
+                raw_lines = fh.readlines()
         except Exception:
-            return None
-        if not isinstance(data, dict):
-            return None
-        if not (data.get("__biz") and data.get("uin") and data.get("key")):
-            return None
+            return []
+        creds: list[dict[str, str]] = []
+        for line in raw_lines:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                data = json.loads(line)
+            except Exception:
+                continue
+            if not isinstance(data, dict):
+                continue
+            if not (data.get("__biz") and data.get("uin") and data.get("key")):
+                continue
+            creds.append(
+                {
+                    k: str(data.get(k) or "")
+                    for k in ("__biz", "uin", "key", "pass_ticket", "appmsg_token")
+                    if data.get(k)
+                }
+            )
         if consume:
-            self._last_inbox_mtime = mtime
-        return {
-            k: str(data.get(k) or "")
-            for k in ("__biz", "uin", "key", "pass_ticket", "appmsg_token")
-            if data.get(k)
-        }
+            self._inbox_offset = size
+        return creds
 
     def _thread_main(self, confdir: Path) -> None:
         os.environ["SCHINZA_CAPTURE_INBOX"] = str(self.inbox)

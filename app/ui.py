@@ -6,6 +6,7 @@ import json
 import queue
 import re
 import threading
+import time
 import webbrowser
 from datetime import datetime
 from pathlib import Path
@@ -88,6 +89,14 @@ COLORS = {
     "ok": "#4ADE80",
     "nav_idle": "#1E293B",
 }
+
+
+def _matches_name_filter(name: str, query: str) -> bool:
+    """Case-insensitive substring match on 公众号名称 (empty query matches all)."""
+    q = (query or "").strip().lower()
+    if not q:
+        return True
+    return q in (name or "").lower()
 
 
 def _fmt_remain(seconds: int) -> str:
@@ -252,6 +261,9 @@ class CertificateApp(ctk.CTk):
         self._pending_capture_id: str | None = None
         self._bulk_renew_remaining: set[str] = set()
         self._bulk_renew_total: int = 0
+        self._bulk_renew_started_at: float = 0.0
+        self._name_filter = ""
+        self._bulk_no_capture_hint_shown = False
         self._cards: dict[str, AccountCard] = {}
         self._rebuild_job: str | None = None
         self._tab = "credentials"
@@ -714,6 +726,19 @@ class CertificateApp(ctk.CTk):
             font=ctk.CTkFont(family="Microsoft YaHei UI", size=13, weight="bold"),
             command=self.renew_all_accounts,
         ).grid(row=0, column=1, sticky="e")
+
+        self.search_entry = ctk.CTkEntry(
+            head,
+            placeholder_text="按公众号名称搜索…",
+            height=32,
+            corner_radius=10,
+            border_color=COLORS["border"],
+            fg_color=COLORS["card"],
+            text_color=COLORS["text"],
+            font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
+        )
+        self.search_entry.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(6, 0))
+        self.search_entry.bind("<KeyRelease>", lambda _e: self._apply_name_filter())
 
         self.list_frame = ctk.CTkScrollableFrame(
             wrap,
@@ -1719,6 +1744,8 @@ class CertificateApp(ctk.CTk):
     def _clear_bulk_renew(self) -> None:
         self._bulk_renew_remaining = set()
         self._bulk_renew_total = 0
+        self._bulk_renew_started_at = 0.0
+        self._bulk_no_capture_hint_shown = False
 
     def _bulk_renew_active(self) -> bool:
         return bool(self._bulk_renew_remaining)
@@ -1742,8 +1769,9 @@ class CertificateApp(ctk.CTk):
 
         name = str(row.get("name") or "")
         self.set_status(
-            f"「{name}」续约中：请在微信里刷新该公众号已打开的文章"
-            "（必须刷新才会产生新流量；无需系统浏览器）",
+            f"「{name}」续约中：请在微信里打开/刷新该公众号文章"
+            "（或滚动其历史消息页）。若刷新无反应：先重启微信再打开文章。"
+            "抓包明细见 data/capture_debug.log",
             ok=True,
         )
 
@@ -1763,13 +1791,16 @@ class CertificateApp(ctk.CTk):
         self._pending_capture_id = None
         self._bulk_renew_remaining = {str(r["id"]) for r in rows}
         self._bulk_renew_total = len(self._bulk_renew_remaining)
+        self._bulk_renew_started_at = time.time()
+        self._bulk_no_capture_hint_shown = False
         for aid in self._bulk_renew_remaining:
             self.store.set_awaiting(aid)
         self.watcher.enable()
         self.set_status(
             f"批量续约中（0/{self._bulk_renew_total}）："
-            "请在微信内依次刷新各公众号已打开的文章"
-            "（不刷新不会更新凭证；按 __biz 自动落到对应卡片）",
+            "请在微信内依次打开/刷新各公众号文章（或滚动其历史消息页）。"
+            "若刷新无反应：先重启微信（让代理生效）再打开文章。"
+            "抓包明细见 data/capture_debug.log",
             ok=True,
         )
 
@@ -1777,15 +1808,15 @@ class CertificateApp(ctk.CTk):
         if not expected_biz:
             return False
         self.mitm.reset_inbox_cursor()
-        cred = self.mitm.read_new_credentials(consume=False)
-        if not cred:
-            return False
-        if cred.get("__biz") != expected_biz:
-            return False
-        ok = self._apply_credentials(cred)
-        if ok:
-            self.mitm.ack_inbox()
-        return ok
+        creds = self.mitm.read_new_credentials(consume=False)
+        for cred in creds:
+            if cred.get("__biz") != expected_biz:
+                continue
+            ok = self._apply_credentials(cred)
+            if ok:
+                self.mitm.ack_inbox()
+                return True
+        return False
 
     def open_article(self, account_id: str) -> None:
         row = self.store.get(account_id)
@@ -1856,8 +1887,9 @@ class CertificateApp(ctk.CTk):
                 self.watcher.enable()
                 left = len(self._bulk_renew_remaining)
                 self.set_status(
-                    f"已忽略未登记公众号流量；批量续约还剩 {left} 个，"
-                    "请继续在微信内刷新待续约文章",
+                    f"已截获流量但 __biz 未匹配到列表中的公众号"
+                    f"（可能刷新错了公众号或该号缺少 __biz）；"
+                    f"批量续约还剩 {left} 个，请刷新待续约公众号的文章",
                     ok=False,
                 )
             elif pending_id:
@@ -1889,6 +1921,8 @@ class CertificateApp(ctk.CTk):
             if self._bulk_renew_remaining:
                 self.watcher.enable()
                 self.mitm.reset_capture_state()
+                self._bulk_renew_started_at = time.time()
+                self._bulk_no_capture_hint_shown = False
                 self.set_status(
                     f"批量续约 {done}/{total}：已更新「{name}」，"
                     "请继续刷新其余公众号文章（必须刷新）",
@@ -1936,6 +1970,11 @@ class CertificateApp(ctk.CTk):
         self.refresh_history_account_options()
         return True
 
+    def _apply_name_filter(self) -> None:
+        """按公众号名称过滤凭证列表卡片。"""
+        self._name_filter = (self.search_entry.get() or "").strip()
+        self._rebuild_list()
+
     def _schedule_rebuild(self) -> None:
         if self._rebuild_job:
             try:
@@ -1949,11 +1988,20 @@ class CertificateApp(ctk.CTk):
         for child in self.list_frame.winfo_children():
             child.destroy()
         self._cards.clear()
-        rows = self.store.list_accounts()
+        rows = [
+            r
+            for r in self.store.list_accounts()
+            if _matches_name_filter(str(r.get("name") or ""), self._name_filter)
+        ]
         if not rows:
+            empty_text = (
+                f"没有匹配「{self._name_filter}」的公众号"
+                if self._name_filter
+                else "还没有公众号。在上方填写名称与文章链接后点击「添加并抓包」。"
+            )
             empty = ctk.CTkLabel(
                 self.list_frame,
-                text="还没有公众号。在上方填写名称与文章链接后点击「添加并抓包」。",
+                text=empty_text,
                 text_color=COLORS["muted"],
                 font=ctk.CTkFont(family="Microsoft YaHei UI", size=13),
             )
@@ -2643,7 +2691,7 @@ class CertificateApp(ctk.CTk):
                     }
                 )
                 art = {"title": "(补录，待读正文)", "link": url}
-                err = str(exc)
+                err = describe_exception(exc)
             self.after(0, lambda: self._on_manual_add_done(art, err))
 
         threading.Thread(target=worker, name="schinza-manual-add", daemon=True).start()
@@ -2746,7 +2794,7 @@ class CertificateApp(ctk.CTk):
                 err = ""
             except Exception as exc:  # noqa: BLE001
                 path = Path(path_str)
-                err = str(exc)
+                err = describe_exception(exc)
             self.after(
                 0,
                 lambda: self._on_article_export_done(path if not err else None, err, ext),
@@ -2811,7 +2859,7 @@ class CertificateApp(ctk.CTk):
                 err = ""
             except Exception as exc:  # noqa: BLE001
                 result = {"ok": 0, "failed": len(selected), "out_dir": dir_str}
-                err = str(exc)
+                err = describe_exception(exc)
             self.after(0, lambda: self._on_batch_export_done(result, err, label))
 
         threading.Thread(target=worker, name="schinza-batch-export", daemon=True).start()
@@ -2837,10 +2885,22 @@ class CertificateApp(ctk.CTk):
     def _tick(self) -> None:
         self.store.mark_expired_if_needed()
         self._pump_sync_queue()
-        cred = self.mitm.read_new_credentials(consume=False)
-        if cred and (self._bulk_renew_active() or self._capture_target_id()):
-            if self._apply_credentials(cred):
+        creds = self.mitm.read_new_credentials(consume=False)
+        if creds and (self._bulk_renew_active() or self._capture_target_id()):
+            applied = False
+            for cred in creds:
+                if self._apply_credentials(cred):
+                    applied = True
+            if applied:
                 self.mitm.ack_inbox()
+        if self._bulk_renew_active() and not self._bulk_no_capture_hint_shown:
+            if time.time() - self._bulk_renew_started_at > 20:
+                self._bulk_no_capture_hint_shown = True
+                self.set_status(
+                    "仍未捕获到微信流量：请先重启微信，再重新打开/刷新各公众号文章"
+                    "（或滚动其历史消息页）；抓包明细见 data/capture_debug.log",
+                    ok=False,
+                )
         rows = {r["id"]: r for r in self.store.list_accounts()}
         for aid, card in list(self._cards.items()):
             if aid in rows:

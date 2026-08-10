@@ -22,7 +22,7 @@ def _inbox() -> Path:
     raw = os.environ.get("SCHINZA_CAPTURE_INBOX") or ""
     if raw:
         return Path(raw)
-    return Path(__file__).resolve().parents[1] / "data" / "capture_inbox.json"
+    return Path(__file__).resolve().parents[1] / "data" / "capture_inbox.jsonl"
 
 
 def _sightings_path() -> Path:
@@ -30,6 +30,22 @@ def _sightings_path() -> Path:
     if raw:
         return Path(raw)
     return Path(__file__).resolve().parents[1] / "data" / "article_sightings.json"
+
+
+def _debug_log(line: str) -> None:
+    """Append a capture diagnostic line next to the inbox (data/capture_debug.log).
+
+    Lets users/developers see whether WeChat traffic reaches the proxy and
+    whether the captured credentials are complete — instead of a silent
+    "刷新没反应".
+    """
+    try:
+        path = _inbox().parent / "capture_debug.log"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(time.strftime("%Y-%m-%dT%H:%M:%S") + " " + line + "\n")
+    except Exception:
+        pass
 
 
 def _merge_from_url(url: str, into: dict[str, str]) -> bool:
@@ -81,6 +97,36 @@ def _url_carries_enough(url: str) -> bool:
     return _enough(tmp)
 
 
+def _effective_biz(url: str, headers) -> str:
+    """Attribute a request to a __biz: from the URL query, else the Referer.
+
+    Article sub-requests (getappmsgext) often carry uin/key/pass_ticket but no
+    __biz in their own URL; the Referer points back to the article which has it.
+    """
+    try:
+        q = parse_qs(urlparse(url).query)
+        biz = (q.get("__biz") or [""])[0]
+        if biz:
+            return unquote(biz).strip()
+    except Exception:
+        pass
+    referer = ""
+    if headers is not None:
+        try:
+            referer = headers.get("Referer", "") or ""
+        except Exception:
+            referer = ""
+    if referer:
+        try:
+            q = parse_qs(urlparse(referer).query)
+            biz = (q.get("__biz") or [""])[0]
+            if biz:
+                return unquote(biz).strip()
+        except Exception:
+            pass
+    return ""
+
+
 def _save(cred: dict[str, str]) -> None:
     path = _inbox()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -89,8 +135,10 @@ def _save(cred: dict[str, str]) -> None:
         "captured_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "source": "mitm",
     }
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    with path.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(payload, ensure_ascii=False) + "\n")
     print(f"[schinza-capture] saved → {path}")
+    _debug_log(f"凭证已保存 __biz={str(cred.get('__biz') or '')[:20]}")
 
 
 def _clean_url(raw: str) -> str:
@@ -326,32 +374,49 @@ class CredentialCapture:
     """
 
     def __init__(self) -> None:
-        self.cred: dict[str, str] = {}
-        self._last_saved_fp: tuple[str, ...] | None = None
+        # Per-__biz buckets: multi-window traffic must never mix credentials
+        # across accounts (bulk renew bug).
+        self.creds: dict[str, dict[str, str]] = {}
+        self._last_saved_fp: dict[str, tuple[str, ...]] = {}
         self._last_sighting_fp: str | None = None
+        self._last_debug_state: tuple[str, tuple[str, ...]] | None = None
+        self._active_biz: str | None = None
 
     def reset_merge_state(self) -> None:
         """Clear merged creds so renew waits for fresh WeChat traffic."""
-        self.cred = {}
-        self._last_saved_fp = None
+        self.creds = {}
+        self._last_saved_fp = {}
         self._last_sighting_fp = None
+        self._last_debug_state = None
+        self._active_biz = None
 
     def request(self, flow) -> None:  # type: ignore[no-untyped-def]
         url = flow.request.pretty_url
-        changed = _merge_from_url(url, self.cred)
         try:
-            cookie = flow.request.headers.get("Cookie", "") or ""
+            headers = flow.request.headers
         except Exception:
-            cookie = ""
-        changed = _merge_from_cookie(cookie, self.cred) or changed
+            headers = None
+        cookie = headers.get("Cookie", "") if headers is not None else ""
+
+        # Attribute this request to a __biz (URL query, else Referer). Without
+        # attribution we CANNOT merge — multi-window renew would mix account A's
+        # key into account B.
+        biz = _effective_biz(url, headers)
+        if not biz:
+            return
+        self._active_biz = biz
+        bucket = self.creds.setdefault(biz, {})
+        bucket.setdefault("__biz", biz)
+        changed = _merge_from_url(url, bucket)
+        changed = _merge_from_cookie(cookie, bucket) or changed
 
         # Article URL sightings — fill getmsg gaps for same-day later pushes
         sighting = extract_article_sighting(url)
         if sighting:
             fp = str(sighting.get("identity") or sighting.get("link") or "")
             if fp and fp != self._last_sighting_fp:
-                if not sighting.get("__biz") and self.cred.get("__biz"):
-                    sighting["__biz"] = self.cred["__biz"]
+                if not sighting.get("__biz") and bucket.get("__biz"):
+                    sighting["__biz"] = bucket["__biz"]
                 _upsert_sighting(sighting)
                 self._last_sighting_fp = fp
                 print(
@@ -362,16 +427,26 @@ class CredentialCapture:
                     },
                 )
 
-        if not _enough(self.cred):
+        # Diagnostic: did the traffic reach us, and are creds complete?
+        have = tuple(sorted(k for k in KEYS if bucket.get(k)))
+        state_key = (biz, have)
+        if state_key != self._last_debug_state:
+            self._last_debug_state = state_key
+            status = "完整" if _enough(bucket) else f"不完整 {list(have) or '无'}"
+            _debug_log(f"截获 __biz={biz[:20]} 凭证{status}")
+
+        if not _enough(bucket):
             return
-        # Rewrite on merge change, or when this URL carries a full set and
+        # Write on merge change, or when this URL carries a full set and
         # inbox was cleared (renew / new wait) — but don't spam identical writes.
-        fp = tuple(self.cred.get(k, "") for k in KEYS)
+        fp = tuple(bucket.get(k, "") for k in KEYS)
         inbox_missing = not _inbox().is_file()
         should_write = False
-        if changed and fp != self._last_saved_fp:
+        if changed and fp != self._last_saved_fp.get(biz):
             should_write = True
-        elif _url_carries_enough(url) and (inbox_missing or fp != self._last_saved_fp):
+        elif _url_carries_enough(url) and (
+            inbox_missing or fp != self._last_saved_fp.get(biz)
+        ):
             should_write = True
         if not should_write:
             return
@@ -379,11 +454,11 @@ class CredentialCapture:
             "[schinza-capture] hit",
             {
                 k: (v[:12] + "…" if len(v) > 12 else v)
-                for k, v in self.cred.items()
+                for k, v in bucket.items()
             },
         )
-        _save(self.cred)
-        self._last_saved_fp = fp
+        _save(bucket)
+        self._last_saved_fp[biz] = fp
 
     def response(self, flow) -> None:  # type: ignore[no-untyped-def]
         try:
@@ -406,7 +481,7 @@ class CredentialCapture:
                 q = parse_qs(urlparse(url).query)
                 biz = unquote((q.get("__biz") or [""])[0])
             except Exception:
-                biz = self.cred.get("__biz") or ""
+                biz = self.creds.get(self._active_biz or "", {}).get("__biz") or ""
             for art in _parse_getmsg_articles(body, biz=biz):
                 _upsert_sighting(art)
             return
@@ -420,8 +495,8 @@ class CredentialCapture:
             base = extract_article_sighting(url)
             if not base:
                 return
-            if not base.get("__biz") and self.cred.get("__biz"):
-                base["__biz"] = self.cred["__biz"]
+            if not base.get("__biz") and self.creds.get(self._active_biz or "", {}).get("__biz"):
+                base["__biz"] = self.creds[self._active_biz or ""]["__biz"]
             enriched = _enrich_sighting_from_html(html, base)
             if enriched.get("title") or enriched.get("publish_ts"):
                 _upsert_sighting(enriched)

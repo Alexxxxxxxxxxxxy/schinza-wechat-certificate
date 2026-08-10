@@ -38,7 +38,7 @@ Prebuilt Windows packages (onedir) are published on GitHub Releases:
 
 **https://github.com/Alexxxxxxxxxxxxy/schinza-wechat-certificate/releases**
 
-1. Open the latest release (e.g. `schinza:1.7.4`)
+1. Open the latest release (e.g. `schinza:1.8.5`)
 2. Download the zip / asset and extract the **whole** `Schinza` folder
 3. Run `Schinza.exe` (do not ship a lone `.exe` without `_internal/`)
 
@@ -52,7 +52,7 @@ Source repository: [Alexxxxxxxxxxxxy/schinza-wechat-certificate](https://github.
 
 | Module | What it does |
 |--------|----------------|
-| **Credential Manager** | Install bundled MITM CA, start local proxy, capture `__biz` / `uin` / `key` / `pass_ticket` from WeChat Desktop; **30‑minute TTL** with renew / copy JSON |
+| **Credential Manager** | Install bundled MITM CA, start local proxy, capture `__biz` / `uin` / `key` / `pass_ticket` from WeChat Desktop; **30‑minute TTL** with renew / copy JSON / **search by name** |
 | **History Articles** | Fetch **7 / 30 / 90‑day / all / custom‑day** history; list export; per‑article or batch body export; optional **URL补录** |
 | **List export** | JSON · CSV (Excel) · TSV · Markdown · plain links · title+link |
 | **Article export** | Per-article or **batch**: **HTML** · **Markdown** · **TXT** · **JSON** · **Word (.docx)** |
@@ -108,6 +108,41 @@ python main.py
 > Prefer **Add & Capture** over starting the proxy alone. Use **补录链接** when you need to add a missing article.
 
 ---
+
+## Troubleshooting (fetch errors)
+
+### "unknown error / unknownerror"
+This is **WeChat server-side risk control** (`ret=-6, errmsg=unknownerror`), **not** a local
+network/proxy issue: WeChat has flagged the account/session as abnormal and refuses to return
+the article list.
+
+- **First check** (network/proxy): Settings → Network & Internet → Proxy → turn off manual proxy,
+  then restart the app. A reinstall often just clears leftover proxy state.
+- **If network/proxy is fine and it still happens**: the account is rate-limited/flagged. Please:
+  - Lower fetch frequency; avoid repeated "All" or bulk fetches across many accounts
+  - Wait a while (hours to a day) and retry
+  - If it persists, capture with a different WeChat account (avoid your main account)
+- Since 1.7.4 the app shows the real reason (e.g. "微信风控拒绝" / "连接微信超时") instead of a bare unknown error.
+
+### "连接微信超时 / 网络错误" (timeout / network error)
+Direct connection to `mp.weixin.qq.com` failed: check your network, clear leftover proxy,
+restart the app. The app already retries twice automatically.
+
+### "Renew all" / renew does nothing
+Renewal depends on WeChat emitting a request that carries **complete credentials**
+(`__biz`+`uin`+`key` in the URL, e.g. getappmsgext / getmsg). Just refreshing an
+already-open article page may not produce such a request. Please:
+
+1. After starting renewal, **restart WeChat** (so the new proxy/CA takes effect)
+2. **Re-open** the article (not just refresh an old tab), or **scroll the OA history
+   page** to trigger getmsg
+3. Still nothing? Check `data/capture_debug.log`:
+   - "截获…凭证不完整" → traffic reaches the proxy but lacks `key`; scroll the history page
+   - empty log → WeChat traffic isn't going through the proxy; restart WeChat and retry
+   - "凭证已保存" → captured; wait for auto-apply
+
+### "凭证已失效 / 会话异常" (expired / invalid session)
+Credentials are valid for 30 minutes — re-capture / renew before fetching.
 
 ## Build Windows release
 
