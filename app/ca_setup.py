@@ -168,6 +168,53 @@ def prepare_mitm_confdir(app_root: Path) -> tuple[Path, str]:
     )
 
 
+def install_ca(app_root: Path) -> tuple[bool, str]:
+    """Platform-aware CA trust install: certutil on Windows, security on macOS."""
+    if sys.platform == "darwin":
+        return install_ca_macos(app_root)
+    return install_ca_windows(app_root)
+
+
+def install_ca_macos(app_root: Path) -> tuple[bool, str]:
+    """Import public CA into macOS login keychain trust store via security(1)."""
+    cer = app_root / CER_NAME
+    if not cer.is_file():
+        try:
+            prepare_mitm_confdir(app_root)
+        except Exception:
+            pass
+        cer = ensure_beside(app_root, CER_NAME) or (app_root / CER_NAME)
+    if not cer.is_file():
+        return False, f"未找到 {CER_NAME} / {P12_PUBLIC}，请先启动一次抓包代理生成证书"
+    keychain = str(Path.home() / "Library" / "Keychains" / "login.keychain-db")
+    # 1) Try to add as a trusted root for the current user (may prompt for password)
+    cmd = ["security", "add-trusted-cert", "-d", "-r", "trustRoot", "-k", keychain, str(cer)]
+    try:
+        proc = subprocess.run(
+            cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", check=False
+        )
+        out = ((proc.stdout or "") + "\n" + (proc.stderr or "")).strip()
+        if proc.returncode == 0:
+            return True, "已将 CA 加入 macOS 登录钥匙串信任根。请重启微信后再抓包。（若弹出密码框，请输入本机密码）"
+        # 2) Fallback: add certificate only + ask user to trust manually
+        proc2 = subprocess.run(
+            ["security", "add-certificates", str(cer)],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", check=False,
+        )
+        if proc2.returncode == 0:
+            return (
+                False,
+                "已导入证书，但系统信任设置需要手动完成：打开「钥匙串访问」→ 系统/登录 → 双击 "
+                "mitmproxy-ca-cert → 信任 → 选择「始终信任」。\n\n"
+                f"security 输出：{out or '（无）'}",
+            )
+        return False, f"证书导入失败：{out or (proc2.stderr or '未知错误')}"
+    except FileNotFoundError:
+        return False, "未找到 security 命令，请手动在钥匙串访问中导入 mitmproxy-ca-cert.cer"
+    except Exception as exc:  # noqa: BLE001
+        return False, f"证书安装异常：{exc}"
+
+
 def install_ca_windows(app_root: Path) -> tuple[bool, str]:
     """Import public CA into Current User Root store via certutil."""
     cer = app_root / CER_NAME
@@ -227,6 +274,9 @@ def open_p12_in_explorer(app_root: Path) -> tuple[bool, str]:
         p = ensure_beside(app_root, name) or _find(app_root, name)
         if p is not None:
             try:
+                if sys.platform == "darwin":
+                    subprocess.Popen(["open", "-R", str(p)])
+                    return True, f"已在访达中定位：{p}"
                 subprocess.Popen(["explorer", "/select,", str(p)])
                 return True, f"已在资源管理器中定位：{p}"
             except Exception as exc:  # noqa: BLE001
