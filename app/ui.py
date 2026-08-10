@@ -36,7 +36,7 @@ from app.credentials import (
     try_parse_credentials,
 )
 from app.history_account_select import pick_label_for_account_id, resolve_account_id
-from app.history_client import fetch_history_days
+from app.history_client import describe_exception, fetch_history_days
 from app.history_export import (
     FORMAT_LABELS,
     default_export_filename,
@@ -2229,7 +2229,7 @@ class CertificateApp(ctk.CTk):
                     sightings=sightings,
                 )
             except Exception as exc:  # noqa: BLE001
-                result = {"ok": False, "error": str(exc), "articles": []}
+                result = {"ok": False, "error": describe_exception(exc), "articles": []}
             self.after(0, lambda: self._on_history_done(name, result))
 
         threading.Thread(target=worker, name="schinza-history", daemon=True).start()

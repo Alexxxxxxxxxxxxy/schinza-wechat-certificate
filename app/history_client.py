@@ -51,6 +51,22 @@ def validate_credentials(cred: dict[str, Any]) -> tuple[bool, str]:
     return True, ""
 
 
+def describe_exception(exc: Exception) -> str:
+    """Never return an empty error message (requests exceptions often have '')."""
+    msg = str(exc).strip()
+    name = type(exc).__name__
+    return f"{name}: {msg}" if msg else name
+
+
+def _network_error(exc: Exception) -> str:
+    base = describe_exception(exc)
+    if isinstance(exc, requests.Timeout):
+        return base + "（连接微信超时，请检查网络后重试）"
+    if isinstance(exc, requests.exceptions.SSLError):
+        return base + "（SSL 错误，可能是证书或代理问题）"
+    return base + "（网络错误，请检查网络/代理设置后重试）"
+
+
 def _clean_url(raw: str) -> str:
     s = html.unescape((raw or "").strip())
     s = s.replace("\\/", "/")
@@ -260,6 +276,35 @@ def parse_getmsg_response(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _get_page_with_retry(
+    sess: requests.Session,
+    *,
+    params: dict[str, str],
+    headers: dict[str, str],
+    cookies: dict[str, str],
+    timeout: float,
+    retries: int,
+    retry_delay_s: float,
+) -> tuple[requests.Response | None, Exception | None]:
+    last_exc: Exception | None = None
+    for attempt in range(retries + 1):
+        try:
+            resp = sess.get(
+                GETMSG_URL, params=params, headers=headers, cookies=cookies, timeout=timeout
+            )
+            return resp, None
+        except requests.exceptions.SSLError as exc:
+            # 证书类错误重试无意义：立即返回，避免反复超时
+            return None, exc
+        except (requests.Timeout, requests.ConnectionError) as exc:
+            last_exc = exc
+            if attempt < retries:
+                time.sleep(retry_delay_s * (attempt + 1))
+        except Exception as exc:  # noqa: BLE001 - other errors: surface immediately
+            return None, exc
+    return None, last_exc
+
+
 def fetch_getmsg_page(
     cred: dict[str, Any],
     *,
@@ -267,6 +312,8 @@ def fetch_getmsg_page(
     count: int = DEFAULT_PAGE_COUNT,
     timeout: float = 25.0,
     session: requests.Session | None = None,
+    retries: int = 2,
+    retry_delay_s: float = 1.0,
 ) -> dict[str, Any]:
     cred = normalize_credentials(cred)
     ok, err = validate_credentials(cred)
@@ -322,9 +369,23 @@ def fetch_getmsg_page(
     sess = session or requests.Session()
     # Bypass system MITM proxy — talk to WeChat directly.
     sess.trust_env = False
-    resp = sess.get(
-        GETMSG_URL, params=params, headers=headers, cookies=cookies, timeout=timeout
+    resp, net_err = _get_page_with_retry(
+        sess,
+        params=params,
+        headers=headers,
+        cookies=cookies,
+        timeout=timeout,
+        retries=max(0, int(retries)),
+        retry_delay_s=max(0.0, float(retry_delay_s)),
     )
+    if net_err is not None:
+        return {
+            "ok": False,
+            "error": _network_error(net_err),
+            "articles": [],
+            "can_continue": False,
+            "next_offset": None,
+        }
     text = resp.text.strip()
     if text.startswith("{"):
         payload = resp.json()
@@ -511,7 +572,16 @@ def fetch_history_days(
     for i in range(page_limit):
         if on_progress:
             on_progress(f"正在拉取第 {i + 1} 页（已收录 {len(articles)} 篇）…")
-        page = fetch_getmsg_page(cred, offset=offset, count=count, session=sess)
+        try:
+            page = fetch_getmsg_page(cred, offset=offset, count=count, session=sess)
+        except Exception as exc:  # noqa: BLE001 - never swallow into 未知错误
+            page = {
+                "ok": False,
+                "error": describe_exception(exc),
+                "articles": [],
+                "can_continue": False,
+                "next_offset": None,
+            }
         pages += 1
         if not page.get("ok"):
             partial = merge_articles_with_sightings(
