@@ -10,7 +10,7 @@ import webbrowser
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
-from tkinter import filedialog
+from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
 import pyperclip
@@ -27,6 +27,7 @@ from app.article_reader import (
 )
 from app.ca_setup import PROXY_HOST, PROXY_PORT, install_ca_windows, open_p12_in_explorer
 from app.capture_target import expected_biz, resolve_capture_target
+from app.batch_import import BatchRow, parse_batch_import
 from app.clipboard_watch import ClipboardWatcher
 from app.credentials import (
     credentials_to_json,
@@ -670,6 +671,17 @@ class CertificateApp(ctk.CTk):
             fg_color=COLORS["border"],
             hover_color="#3a4a5e",
             command=self.paste_credentials_manual,
+        ).pack(side="right", padx=(12, 0))
+
+        ctk.CTkButton(
+            paste_row,
+            text="批量导入",
+            width=96,
+            height=30,
+            corner_radius=8,
+            fg_color=COLORS["border"],
+            hover_color="#3a4a5e",
+            command=self.batch_import_accounts,
         ).pack(side="right", padx=(12, 0))
 
     def _build_list(self) -> None:
@@ -1643,6 +1655,66 @@ class CertificateApp(ctk.CTk):
             "已添加并开始抓包。请现在用微信桌面打开该公众号任意一篇文章，等待自动入库。",
             ok=True,
         )
+
+    def batch_import_accounts(self) -> None:
+        """批量导入 CSV/TXT（公众号,文章链接），逐个添加并抓包。"""
+        path = filedialog.askopenfilename(
+            title="选择批量导入文件（CSV/TXT）",
+            filetypes=[
+                ("CSV / TXT", "*.csv;*.txt"),
+                ("CSV 文件", "*.csv"),
+                ("TXT 文件", "*.txt"),
+                ("所有文件", "*.*"),
+            ],
+        )
+        if not path:
+            return
+        try:
+            text = Path(path).read_text(encoding="utf-8-sig")
+        except UnicodeDecodeError:
+            try:
+                text = Path(path).read_text(encoding="gb18030")
+            except UnicodeDecodeError as exc:
+                self.set_status(f"批量导入失败（编码无法识别）：{exc}", ok=False)
+                return
+        rows, errors = parse_batch_import(text)
+        if not rows:
+            summary = "；".join(errors[:8]) + ("…" if len(errors) > 8 else "")
+            self.set_status(f"批量导入失败：没有有效行（{summary}）", ok=False)
+            return
+
+        existing_urls = {
+            str(r.get("article_url") or "").strip()
+            for r in self.store.list_accounts()
+            if str(r.get("article_url") or "").strip()
+        }
+        dup_lines: list[int] = []
+        to_add: list[BatchRow] = []
+        for row in rows:
+            if row.link in existing_urls:
+                dup_lines.append(row.line)
+                continue
+            to_add.append(row)
+            existing_urls.add(row.link)
+        if not to_add:
+            self.set_status("批量导入失败：所有行都与已有公众号重复", ok=False)
+            return
+
+        if not self._ensure_proxy_for_capture():
+            return
+        for row in to_add:
+            self.store.add_pending(name=row.name, article_url=row.link)
+        self._pending_capture_id = None
+        self.watcher.enable()
+        self.mitm.clear_inbox()
+        skipped = len(errors) + len(dup_lines)
+        base = (
+            f"已批量添加 {len(to_add)} 个公众号并开始抓包。"
+            "请依次在微信桌面打开各公众号任意一篇文章，等待自动入库。"
+        )
+        if skipped:
+            base += f"（跳过 {skipped} 行：无效/重复）"
+        self.set_status(base, ok=True)
 
     def _clear_bulk_renew(self) -> None:
         self._bulk_renew_remaining = set()

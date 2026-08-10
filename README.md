@@ -11,7 +11,7 @@
 <p align="center">
   <strong>Windows desktop helper for WeChat Official Account credentials &amp; history</strong>
   <br />
-  Capture short-lived MP keys · 30‑minute TTL · Fetch 7 / 30 / 90‑day, all, or custom‑day history · Export list &amp; full articles (HTML / Markdown / TXT / JSON / Word) · Batch export
+  Capture short-lived MP keys · 30‑minute TTL · Fetch 7 / 30 / 90‑day, all, or custom‑day history · Export list &amp; full articles (HTML / Markdown / TXT / JSON / Word) · Batch import (CSV/TXT) · Batch export
 </p>
 
 <p align="center">
@@ -100,7 +100,7 @@ python main.py
 ### First-time capture flow
 
 1. **Credential Manager** → **Install CA** → restart WeChat Desktop  
-2. Account name + any article URL → **Add & Capture**  
+2. Account name + any article URL → **Add & Capture**; or use **Batch Import** to load a CSV/TXT (column 1 = OA name, column 2 = article URL; comma/tab separated, header auto-detected)  
 3. Open any article from that OA in WeChat Desktop  
 4. Credentials appear (30‑minute TTL). **Renew** does not open a system browser — refresh the already-open article in WeChat; multi-OA traffic is routed by `__biz`  
 5. **History Articles** → pick range (7 / 30 / 90 days, all, or custom days) → **Fetch** → export list or per-article body  
