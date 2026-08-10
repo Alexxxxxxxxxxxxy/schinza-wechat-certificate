@@ -38,7 +38,7 @@ Prebuilt Windows packages (onedir) are published on GitHub Releases:
 
 **https://github.com/Alexxxxxxxxxxxxy/schinza-wechat-certificate/releases**
 
-1. Open the latest release (e.g. `schinza:1.6.3`)
+1. Open the latest release (e.g. `schinza:1.7.3`)
 2. Download the zip / asset and extract the **whole** `Schinza` folder
 3. Run `Schinza.exe` (do not ship a lone `.exe` without `_internal/`)
 

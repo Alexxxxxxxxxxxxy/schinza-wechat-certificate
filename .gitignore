@@ -11,17 +11,17 @@ build/
 .DS_Store
 Thumbs.db
 
-# Local runtime data (credentials / exports)
-data/*.json
-data/mitm_conf/
-data/_run_mitmdump.py
-!data/.gitkeep
+# Tests - not for upload
+tests/
 
-# Private CA material — do not publish keys
+# Local runtime data (credentials / exports) - not for upload
+data/
+
+# Private CA material - do not publish keys
 mitmproxy-ca.pem
 mitmproxy-ca.p12
 mitmproxy-ca-cert.p12
 mitmproxy-ca-cert.cer
 
-# Standalone repo backup (removed nested .git) — never track
+# Standalone repo backup (removed nested .git) - never track
 .git.standalone-backup/
