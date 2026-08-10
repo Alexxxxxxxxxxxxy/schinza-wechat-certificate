@@ -22,3 +22,12 @@ def test_history_range_presets():
     assert days_for_label("近 90 天") == 90
     assert label_for_days(30) == "近 30 天"
     assert days_for_label("未知") == 7
+
+
+def test_all_and_custom_labels():
+    """「全部」与「自定义天数」作为新的范围选项存在。"""
+    assert "全部" in HISTORY_RANGE_LABELS
+    assert "自定义天数" in HISTORY_RANGE_LABELS
+    assert days_for_label("全部") is None
+    assert label_for_days(None) == "全部"
+    assert label_for_days(15) == "自定义天数"

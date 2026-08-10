@@ -11,6 +11,7 @@ sys.path.insert(0, str(ROOT))
 from app.history_client import (  # noqa: E402
     _dedupe,
     article_identity,
+    fetch_history_days,
     parse_general_msg_list,
     parse_getmsg_response,
 )
@@ -171,3 +172,78 @@ def test_parse_getmsg_ok_string_list():
     )
     assert page["ok"]
     assert len(page["articles"]) == 1
+
+
+def _fake_page(articles, can_continue=True, next_offset=None, raw=None):
+    return {
+        "ok": True,
+        "error": "",
+        "articles": articles,
+        "can_continue": can_continue,
+        "next_offset": next_offset,
+        "raw": raw or {},
+    }
+
+
+def test_fetch_all_keeps_old_articles(monkeypatch):
+    """「全部」模式：不按日期过滤，翻页保留所有文章。"""
+    now = int(time.time())
+    old = {
+        "title": "旧文",
+        "link": "https://mp.weixin.qq.com/s/old",
+        "publish_ts": now - 90 * 86400,
+        "mid": "1", "idx": "1", "sn": "old",
+    }
+    new = {
+        "title": "新文",
+        "link": "https://mp.weixin.qq.com/s/new",
+        "publish_ts": now - 1 * 86400,
+        "mid": "2", "idx": "1", "sn": "new",
+    }
+
+    calls = {"n": 0}
+
+    def fake_fetch(cred, offset=0, count=10, session=None):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return _fake_page([new, old], can_continue=True, next_offset=10)
+        return _fake_page([], can_continue=False, next_offset=None)
+
+    monkeypatch.setattr("app.history_client.fetch_getmsg_page", fake_fetch)
+    cred = {"__biz": "B", "uin": "1", "key": "k"}
+    result = fetch_history_days(cred, days=None, max_pages=5, sleep_s=0)
+    assert result["ok"]
+    assert result["days"] is None
+    assert result["cutoff_ts"] is None
+    assert {a["title"] for a in result["articles"]} == {"新文", "旧文"}
+
+
+def test_fetch_days_filters_old_articles(monkeypatch):
+    """按天模式：超过天数的文章被过滤。"""
+    now = int(time.time())
+    old = {
+        "title": "旧文",
+        "link": "https://mp.weixin.qq.com/s/old",
+        "publish_ts": now - 90 * 86400,
+        "mid": "1", "idx": "1", "sn": "old",
+    }
+    new = {
+        "title": "新文",
+        "link": "https://mp.weixin.qq.com/s/new",
+        "publish_ts": now - 1 * 86400,
+        "mid": "2", "idx": "1", "sn": "new",
+    }
+
+    calls = {"n": 0}
+
+    def fake_fetch(cred, offset=0, count=10, session=None):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return _fake_page([new, old], can_continue=True, next_offset=10)
+        return _fake_page([], can_continue=False, next_offset=None)
+
+    monkeypatch.setattr("app.history_client.fetch_getmsg_page", fake_fetch)
+    cred = {"__biz": "B", "uin": "1", "key": "k"}
+    result = fetch_history_days(cred, days=7, max_pages=5, sleep_s=0)
+    assert result["ok"]
+    assert {a["title"] for a in result["articles"]} == {"新文"}

@@ -45,10 +45,15 @@ from app.history_export import (
     write_export,
 )
 from app.history_ranges import (
+    ALL_LABEL,
+    CUSTOM_DAYS_DEFAULT,
+    CUSTOM_LABEL,
     DEFAULT_HISTORY_DAYS,
     HISTORY_RANGE_LABELS,
+    MAX_CUSTOM_DAYS,
     days_for_label,
     label_for_days,
+    range_text,
 )
 from app.mitm_capture import MitmCaptureService
 from app.sightings import SightingsStore, default_sightings_path
@@ -249,7 +254,8 @@ class CertificateApp(ctk.CTk):
         self._cards: dict[str, AccountCard] = {}
         self._rebuild_job: str | None = None
         self._tab = "credentials"
-        self._history_days = DEFAULT_HISTORY_DAYS
+        self._history_days: int | None = DEFAULT_HISTORY_DAYS
+        self._history_custom_days: int | None = None
         self._history_articles: list[dict[str, Any]] = []
         self._history_account_name: str = ""
         self._history_cred: dict[str, Any] = {}
@@ -760,7 +766,7 @@ class CertificateApp(ctk.CTk):
         self.hist_range_menu = ctk.CTkOptionMenu(
             panel,
             values=HISTORY_RANGE_LABELS,
-            width=110,
+            width=130,
             height=36,
             corner_radius=10,
             fg_color=COLORS["card"],
@@ -771,7 +777,7 @@ class CertificateApp(ctk.CTk):
             dropdown_font=ctk.CTkFont(family="Microsoft YaHei UI", size=13),
             command=self._on_history_range_change,
         )
-        self.hist_range_menu.set(label_for_days(self._history_days))
+        self.hist_range_menu.set(self._history_range_label())
         self.hist_range_menu.grid(row=2, column=2, sticky="e", padx=(0, 10), pady=6)
 
         self.hist_fetch_btn = ctk.CTkButton(
@@ -1941,10 +1947,163 @@ class CertificateApp(ctk.CTk):
         )
 
     def _fetch_btn_label(self) -> str:
+        if self._history_days is None:
+            return "拉取全部历史"
         return f"拉取近{self._history_days}天"
 
+    def _history_range_label(self) -> str:
+        """当前选择对应的下拉框文案（自定义值显示为「自定义 N 天」）。"""
+        days = self._history_days
+        if days is None:
+            return ALL_LABEL
+        if label_for_days(days) == CUSTOM_LABEL:
+            return f"自定义 {days} 天"
+        return label_for_days(days)
+
     def _on_history_range_change(self, value: str) -> None:
+        if value == CUSTOM_LABEL:
+            self._prompt_custom_days()
+            return
         self._history_days = days_for_label(value)
+        self.hist_range_menu.set(self._history_range_label())
+        if not self._history_fetching:
+            self.hist_fetch_btn.configure(text=self._fetch_btn_label())
+
+    def _prompt_custom_days(self) -> None:
+        """Themed modal for 自定义天数 — matches app COLORS (not system simpledialog)."""
+        result: dict[str, int | None] = {"days": None}
+        prev = self._history_days
+
+        dlg = ctk.CTkToplevel(self)
+        dlg.title("自定义天数")
+        dlg.configure(fg_color=COLORS["bg"])
+        dlg.geometry("440x250")
+        dlg.minsize(420, 230)
+        dlg.transient(self)
+        dlg.grab_set()
+        dlg.resizable(False, False)
+
+        # Center over parent
+        try:
+            self.update_idletasks()
+            x = self.winfo_rootx() + (self.winfo_width() - 440) // 2
+            y = self.winfo_rooty() + (self.winfo_height() - 250) // 2
+            dlg.geometry(f"+{max(0, x)}+{max(0, y)}")
+        except Exception:
+            pass
+
+        card = ctk.CTkFrame(
+            dlg,
+            fg_color=COLORS["panel"],
+            corner_radius=16,
+            border_width=1,
+            border_color=COLORS["border"],
+        )
+        card.pack(fill="both", expand=True, padx=16, pady=16)
+        card.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            card,
+            text="自定义拉取天数",
+            font=ctk.CTkFont(family="Microsoft YaHei UI", size=16, weight="bold"),
+            text_color=COLORS["text"],
+            anchor="w",
+        ).grid(row=0, column=0, sticky="ew", padx=18, pady=(16, 4))
+
+        ctk.CTkLabel(
+            card,
+            text=f"请输入要拉取的天数（1 - {MAX_CUSTOM_DAYS}），例如 15 表示近 15 天。",
+            font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
+            text_color=COLORS["muted"],
+            anchor="w",
+            justify="left",
+            wraplength=380,
+        ).grid(row=1, column=0, sticky="ew", padx=18, pady=(0, 10))
+
+        entry = ctk.CTkEntry(
+            card,
+            height=40,
+            corner_radius=10,
+            border_color=COLORS["border"],
+            fg_color=COLORS["card"],
+            text_color=COLORS["text"],
+            font=ctk.CTkFont(family="Consolas", size=14),
+        )
+        entry.grid(row=2, column=0, sticky="ew", padx=18, pady=(0, 8))
+        entry.insert(0, str(self._history_custom_days or CUSTOM_DAYS_DEFAULT))
+        entry.select_range(0, "end")
+        entry.focus_set()
+
+        err_lbl = ctk.CTkLabel(
+            card,
+            text="",
+            font=ctk.CTkFont(family="Microsoft YaHei UI", size=11),
+            text_color=COLORS["danger"],
+            anchor="w",
+        )
+        err_lbl.grid(row=3, column=0, sticky="ew", padx=18, pady=(0, 4))
+
+        btns = ctk.CTkFrame(card, fg_color="transparent")
+        btns.grid(row=4, column=0, sticky="e", padx=18, pady=(8, 16))
+
+        def close_cancel() -> None:
+            result["days"] = None
+            dlg.grab_release()
+            dlg.destroy()
+
+        def confirm() -> None:
+            raw = (entry.get() or "").strip()
+            try:
+                n = int(raw)
+            except ValueError:
+                err_lbl.configure(text="请输入整数天数")
+                return
+            if not (1 <= n <= MAX_CUSTOM_DAYS):
+                err_lbl.configure(text=f"天数需在 1 - {MAX_CUSTOM_DAYS} 之间")
+                return
+            result["days"] = n
+            dlg.grab_release()
+            dlg.destroy()
+
+        ctk.CTkButton(
+            btns,
+            text="取消",
+            width=88,
+            height=34,
+            corner_radius=10,
+            fg_color=COLORS["border"],
+            hover_color="#3a4a5e",
+            text_color=COLORS["text"],
+            font=ctk.CTkFont(family="Microsoft YaHei UI", size=13),
+            command=close_cancel,
+        ).pack(side="left", padx=(0, 8))
+
+        ctk.CTkButton(
+            btns,
+            text="确定",
+            width=96,
+            height=34,
+            corner_radius=10,
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            text_color="#052e16",
+            font=ctk.CTkFont(family="Microsoft YaHei UI", size=13, weight="bold"),
+            command=confirm,
+        ).pack(side="left")
+
+        dlg.protocol("WM_DELETE_WINDOW", close_cancel)
+        entry.bind("<Return>", lambda _e: confirm())
+        entry.bind("<Escape>", lambda _e: close_cancel())
+
+        self.wait_window(dlg)
+        n = result["days"]
+        if n is None:
+            # 取消：恢复原选择
+            self.hist_range_menu.set(self._history_range_label())
+            return
+        self._history_days = n
+        self._history_custom_days = n
+        self.hist_range_menu.set(self._history_range_label())
         if not self._history_fetching:
             self.hist_fetch_btn.configure(text=self._fetch_btn_label())
 
@@ -2021,7 +2180,7 @@ class CertificateApp(ctk.CTk):
             return
         pages = result.get("pages") or 0
         warn = str(result.get("warning") or "").strip()
-        msg = f"「{account_name}」近 {self._history_days} 天共 {len(articles)} 篇（请求 {pages} 页）"
+        msg = f"「{account_name}」{range_text(self._history_days)}共 {len(articles)} 篇（请求 {pages} 页）"
         if warn:
             msg = f"{msg} · {warn}"
         self.set_hist_status(msg, ok=True)
@@ -2421,12 +2580,12 @@ class CertificateApp(ctk.CTk):
         title = art.get("title") or "(无标题)"
         if err:
             self.set_hist_status(
-                f"已补录链接（正文暂读失败：{err}）。请再点「拉取近{self._history_days}天」合并进列表。",
+                f"已补录链接（正文暂读失败：{err}）。请再点「{self._fetch_btn_label()}」合并进列表。",
                 ok=False,
             )
         else:
             self.set_hist_status(
-                f"已补录「{title}」。再点「拉取近{self._history_days}天」即可合并进列表。",
+                f"已补录「{title}」。再点「{self._fetch_btn_label()}」即可合并进列表。",
                 ok=True,
             )
         # Soft-merge into current list without full refetch

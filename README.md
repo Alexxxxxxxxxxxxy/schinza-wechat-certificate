@@ -11,7 +11,7 @@
 <p align="center">
   <strong>Windows desktop helper for WeChat Official Account credentials &amp; history</strong>
   <br />
-  Capture short-lived MP keys · 30‑minute TTL · Fetch 7 / 30 / 90‑day history · Export list &amp; full articles (HTML / Markdown / TXT / JSON / Word) · Batch export
+  Capture short-lived MP keys · 30‑minute TTL · Fetch 7 / 30 / 90‑day, all, or custom‑day history · Export list &amp; full articles (HTML / Markdown / TXT / JSON / Word) · Batch export
 </p>
 
 <p align="center">
@@ -53,7 +53,7 @@ Source repository: [Alexxxxxxxxxxxxy/schinza-wechat-certificate](https://github.
 | Module | What it does |
 |--------|----------------|
 | **Credential Manager** | Install bundled MITM CA, start local proxy, capture `__biz` / `uin` / `key` / `pass_ticket` from WeChat Desktop; **30‑minute TTL** with renew / copy JSON |
-| **History Articles** | Fetch **7 / 30 / 90‑day** history; list export; per‑article or batch body export; optional **URL补录** |
+| **History Articles** | Fetch **7 / 30 / 90‑day / all / custom‑day** history; list export; per‑article or batch body export; optional **URL补录** |
 | **List export** | JSON · CSV (Excel) · TSV · Markdown · plain links · title+link |
 | **Article export** | Per-article or **batch**: **HTML** · **Markdown** · **TXT** · **JSON** · **Word (.docx)** |
 | **Sync Server** | Import Schinza OA list CSV; match local valid credentials by name, then copy or batch upload (≤ 50/batch) to your own open API server |
@@ -103,7 +103,7 @@ python main.py
 2. Account name + any article URL → **Add & Capture**  
 3. Open any article from that OA in WeChat Desktop  
 4. Credentials appear (30‑minute TTL). **Renew** does not open a system browser — refresh the already-open article in WeChat; multi-OA traffic is routed by `__biz`  
-5. **History Articles** → pick range (7 / 30 / 90 days) → **Fetch** → export list or per-article body  
+5. **History Articles** → pick range (7 / 30 / 90 days, all, or custom days) → **Fetch** → export list or per-article body  
 
 > Prefer **Add & Capture** over starting the proxy alone. Use **补录链接** when you need to add a missing article.
 
@@ -132,7 +132,7 @@ Distribute the **whole** `dist\Schinza` folder. Private CA material is required 
 │   ├── mitm_capture.py       # In-process mitmproxy
 │   ├── mitm_addon.py         # Creds + article sightings
 │   ├── history_client.py     # getmsg + sighting merge
-│   ├── history_ranges.py     # 7 / 30 / 90 day presets
+│   ├── history_ranges.py     # 7 / 30 / 90 / all / custom day presets
 │   ├── history_export.py     # List export formats
 │   ├── article_reader.py     # Article HTML / MD / TXT / JSON
 │   ├── sightings.py          # Local补录 / MITM sightings store
@@ -175,7 +175,7 @@ Distribute the **whole** `dist\Schinza` folder. Private CA material is required 
 |------|--------|
 | Proxy | `127.0.0.1:8088` while capture is running |
 | TTL | 30 minutes per credential |
-| History window | 7 / 30 / 90 days |
+| History window | 7 / 30 / 90 / all / custom days |
 | Sync server URL | Required, no built-in default — fill in e.g. `https://your-server.com/schinza` |
 | getmsg API | `https://mp.weixin.qq.com/mp/profile_ext?action=getmsg` |
 | Releases | https://github.com/Alexxxxxxxxxxxxy/schinza-wechat-certificate/releases |

@@ -15,6 +15,8 @@ from urllib.parse import parse_qs, unquote, urlencode, urlparse, urlunparse
 
 import requests
 
+from app.history_ranges import range_text
+
 GETMSG_URL = "https://mp.weixin.qq.com/mp/profile_ext"
 REQUIRED_CRED_KEYS = ("__biz", "uin", "key")
 
@@ -469,7 +471,7 @@ def merge_articles_with_sightings(
 def fetch_history_days(
     cred: dict[str, Any],
     *,
-    days: int = 7,
+    days: int | None = 7,
     max_pages: int = DEFAULT_MAX_PAGES,
     count: int = DEFAULT_PAGE_COUNT,
     sleep_s: float = 1.2,
@@ -477,6 +479,8 @@ def fetch_history_days(
     sightings: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Paginate getmsg and keep articles with publish_ts within the last ``days``.
+
+    ``days=None`` 表示「全部」：不过滤日期，一直翻页到没有更多（或达 max_pages）。
 
     Important: getmsg ``count`` is push-message count. One push may contain many
     articles (multi-appmsg). We keep paging until the whole page is older than
@@ -490,8 +494,10 @@ def fetch_history_days(
     if not ok:
         return {"ok": False, "error": err, "articles": [], "pages": 0}
 
-    days = max(1, int(days))
-    cutoff = int(time.time()) - days * 86400
+    cutoff: int | None = None
+    if days is not None:
+        days = max(1, int(days))
+        cutoff = int(time.time()) - days * 86400
     articles: list[dict[str, Any]] = []
     pages = 0
     offset = 0
@@ -538,14 +544,14 @@ def fetch_history_days(
 
         for a in batch:
             ts = int(a.get("publish_ts") or 0)
-            if ts and ts < cutoff:
+            if cutoff is not None and ts and ts < cutoff:
                 continue
             row = dict(a)
             row.setdefault("source", "getmsg")
             articles.append(row)
 
         newest = _page_newest_ts(batch)
-        page_fully_old = bool(batch) and newest > 0 and newest < cutoff
+        page_fully_old = bool(batch) and newest > 0 and cutoff is not None and newest < cutoff
 
         if page_fully_old:
             break
@@ -579,15 +585,16 @@ def fetch_history_days(
 
     warn = ""
     if hit_page_cap and last_can_continue:
+        scope = range_text(days) + ("" if days is None else "内")
         warn = (
-            f"已达翻页上限 {page_limit} 页，近 {days} 天内可能仍有文章未拉完，请再点一次拉取续翻。"
+            f"已达翻页上限 {page_limit} 页，{scope}可能仍有文章未拉完，请再点一次拉取续翻。"
         )
     if merged_extra:
         extra = f"已合并补录/抓包 {merged_extra} 篇"
         warn = f"{warn} · {extra}" if warn else extra
 
     if on_progress:
-        msg = f"完成：近 {days} 天共 {len(deduped)} 篇（请求 {pages} 页）"
+        msg = f"完成：{range_text(days)}共 {len(deduped)} 篇（请求 {pages} 页）"
         if warn:
             msg += f" · {warn}"
         on_progress(msg)

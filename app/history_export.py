@@ -9,6 +9,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from app.history_ranges import range_text
+
 # (menu label, file extension, mime-ish key)
 EXPORT_FORMATS: list[tuple[str, str, str]] = [
     ("JSON", "json", "json"),
@@ -59,7 +61,7 @@ def render_export(
     *,
     fmt: str,
     account_name: str = "",
-    days: int = 7,
+    days: int | None = 7,
 ) -> str:
     """Return file contents (text) for the given format key."""
     fmt = (fmt or "json").lower()
@@ -114,7 +116,7 @@ def render_export(
 
     if fmt == "markdown":
         lines = [
-            f"# {account_name or '公众号'} · 近 {days} 天历史文章",
+            f"# {account_name or '公众号'} · {range_text(days)}文章",
             "",
             f"> 导出时间：{exported_at} · 共 {len(articles)} 篇",
             "",
@@ -147,13 +149,14 @@ def render_export(
 def default_export_filename(
     *,
     account_name: str,
-    days: int,
+    days: int | None,
     ext: str,
 ) -> str:
     safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in (account_name or "history"))
     safe = safe.strip("_") or "history"
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return f"{safe}_{days}d_{stamp}.{ext}"
+    suffix = "all" if days is None else f"{days}d"
+    return f"{safe}_{suffix}_{stamp}.{ext}"
 
 
 def write_export(path: Path, content: str, *, encoding: str = "utf-8") -> Path:
