@@ -47,8 +47,26 @@ echo "    - assets/schinza.icns"
 echo "[*] PyInstaller 打包 -> dist/Schinza.app ..."
 .venv-mac/bin/pyinstaller --noconfirm Schinza-mac.spec
 
+echo "[*] 生成 DMG 镜像 -> dist/Schinza-mac-arm64.dmg ..."
+DMG_STAGE="build/dmg_stage"
+DMG_NAME="dist/Schinza-mac-arm64.dmg"
+rm -rf "$DMG_STAGE"
+mkdir -p "$DMG_STAGE"
+cp -R "dist/Schinza.app" "$DMG_STAGE/"
+ln -s /Applications "$DMG_STAGE/Applications"
+
+if hdiutil create -volname "Schinza" -srcfolder "$DMG_STAGE" \
+  -ov -format UDZO "$DMG_NAME" 2>&1 | tail -3; then
+  rm -rf "$DMG_STAGE"
+  echo "    - $DMG_NAME"
+else
+  echo "    ! DMG 生成失败（hdiutil 报错见上方），.app 产物不受影响"
+  rm -rf "$DMG_STAGE"
+fi
+
 echo ""
 echo "=========================================="
-echo "✅ 完成：dist/Schinza.app"
-echo "   双击即可运行；或执行: open dist/Schinza.app"
+echo "✅ 完成："
+echo "   - dist/Schinza.app"
+echo "   - dist/Schinza-mac-arm64.dmg（可分发，双击挂载后拖入 Applications）"
 echo "=========================================="
