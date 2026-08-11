@@ -75,7 +75,7 @@ Sidebar navigation (dark slate + green accent):
 ## Requirements
 
 - **Windows** 10 / 11 (x64)
-- **macOS** 12+ (Apple Silicon / Intel; source run — built bundle is currently arm64)
+- **macOS** 11.0+ — the built bundle is **Apple Silicon (arm64)** only (Intel Macs can run from source)
 - WeChat **Desktop** (for credential capture; verified on both Windows & macOS)
 - Python **3.11+** (development / build)
 - For Windows packaging: OpenSSL DLLs from your Python/conda env (`libssl` / `libcrypto`); macOS packaging needs no extra DLLs
@@ -186,9 +186,17 @@ Distribute the **whole** `dist\Schinza` folder. Private CA material is required 
 dist/Schinza.app
 ```
 
-The script creates a `.venv-mac` virtualenv → copies the CA from `~/.mitmproxy` → generates `.icns` via `sips` + `iconutil` → runs PyInstaller to produce `Schinza.app`. Private CA material is required for a capture-capable binary — **never commit private keys**.
+The script creates a `.venv-mac` virtualenv → copies the CA from `~/.mitmproxy` → generates `.icns` via `sips` + `iconutil` → runs PyInstaller to produce `Schinza.app`. It also builds `dist/Schinza-mac-arm64.dmg` (UDZO, with an Applications symlink for drag-to-install). Private CA material is required for a capture-capable binary — **never commit private keys**.
 
 > The built bundle is currently **Apple Silicon (arm64)** only. Unsigned `.app` binaries need "right-click → Open" on other machines to bypass Gatekeeper; for wide distribution, sign with an Apple Developer ID and notarize.
+
+### System requirements (macOS bundle)
+
+- **Apple Silicon Mac** (M1 or later) — the bundle is arm64-only
+- **macOS 11.0 (Big Sur)** or later (verified: every bundled binary requires minos 11.0)
+- **WeChat Mac** desktop app installed (required for credential capture)
+- An **administrator account** — installing the trust root and setting the system proxy prompt for the login password
+- ~300 MB free disk space; 2 GB+ free memory recommended
 
 ---
 

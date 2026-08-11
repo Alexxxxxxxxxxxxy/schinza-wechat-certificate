@@ -75,7 +75,7 @@
 ## 运行环境
 
 - **Windows** 10 / 11（x64）
-- **macOS** 12+（Apple Silicon / Intel，源码运行；打包产物当前为 arm64）
+- **macOS** 11.0+（打包产物为 **Apple Silicon (arm64)** 单架构；Intel Mac 可用源码运行）
 - 微信**桌面版**（用于凭证捕获，Windows / macOS 均已实测）
 - Python **3.11+**（开发 / 打包）
 - Windows 打包时需要 Python/conda 环境中的 OpenSSL DLL（`libssl` / `libcrypto`）；macOS 打包不需要额外 DLL
@@ -182,9 +182,17 @@ dist\Schinza\Schinza.exe
 dist/Schinza.app
 ```
 
-脚本会：创建 `.venv-mac` 虚拟环境 → 从 `~/.mitmproxy` 复制 CA → 用 `sips` + `iconutil` 生成 `.icns` 图标 → PyInstaller 打包为 `Schinza.app`。构建可抓包二进制需要带私钥的 CA — **切勿将私钥提交到公开仓库**。
+脚本会：创建 `.venv-mac` 虚拟环境 → 从 `~/.mitmproxy` 复制 CA → 用 `sips` + `iconutil` 生成 `.icns` 图标 → PyInstaller 打包为 `Schinza.app`，并额外生成 `dist/Schinza-mac-arm64.dmg`（UDZO 压缩格式，内含 Applications 快捷方式，双击挂载后拖入 Applications 即安装）。构建可抓包二进制需要带私钥的 CA — **切勿将私钥提交到公开仓库**。
 
 > 当前打包产物为 **Apple Silicon (arm64)** 单架构。未签名 .app 在他人机器上首次打开需「右键 → 打开」绕过 Gatekeeper；正式分发建议使用 Apple Developer ID 签名 + 公证（Notarization）。
+
+### macOS 系统要求（.app / .dmg 产物）
+
+- **Apple Silicon Mac**（M1 及更新芯片）— 构建产物为 arm64 单架构
+- **macOS 11.0 (Big Sur)** 或更高版本（已实测：内置全部二进制的最低版本要求均为 11.0）
+- 已安装**微信 Mac 版**（用于凭证捕获）
+- 需要**管理员权限**的账号（安装信任根证书、设置系统代理时会弹出密码框）
+- 建议 300MB 磁盘空间、2GB 以上可用内存
 
 ---
 
