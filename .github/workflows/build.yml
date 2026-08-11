@@ -7,20 +7,12 @@ on:
 
 jobs:
   build-mac:
-    name: macOS ${{ matrix.artifact }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: macos-14        # Apple Silicon (arm64)
-            artifact: mac-arm64
-          - os: macos-13        # Intel (x86_64)
-            artifact: mac-x64
-    runs-on: ${{ matrix.os }}
+    name: macOS (arm64)
+    runs-on: macos-14          # Apple Silicon (arm64)
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
@@ -45,28 +37,23 @@ jobs:
         shell: bash
         run: |
           set -e
-          if [ "$RUNNER_ARCH" = "ARM64" ]; then
-            mv dist/Schinza-mac-arm64.dmg Schinza-mac-arm64.dmg
-            (cd dist && zip -r ../Schinza-mac-arm64.zip Schinza.app)
-          else
-            mv dist/Schinza.app dist/Schinza-x64.app
-            (cd dist && zip -r ../Schinza-mac-x64.zip Schinza-x64.app)
-          fi
+          mv dist/Schinza-mac-arm64.dmg Schinza-mac-arm64.dmg
+          (cd dist && zip -r ../Schinza-mac-arm64.zip Schinza.app)
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
-          name: Schinza-${{ matrix.artifact }}
+          name: Schinza-mac-arm64
           path: |
-            Schinza-mac-*.zip
-            Schinza-mac-*.dmg
+            Schinza-mac-arm64.zip
+            Schinza-mac-arm64.dmg
 
   build-windows:
     name: Windows x64
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
@@ -90,7 +77,28 @@ jobs:
         shell: bash
         run: powershell -Command "Compress-Archive -Path dist/Schinza -DestinationPath Schinza-windows-x64.zip -Force"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: Schinza-windows-x64
           path: Schinza-windows-x64.zip
+
+  release:
+    name: Publish GitHub Release (tag only)
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-mac, build-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          path: artifacts
+
+      - name: Show artifacts
+        run: find artifacts -type f | sort
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*
+          generate_release_notes: true
