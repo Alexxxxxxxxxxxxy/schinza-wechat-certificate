@@ -34,13 +34,14 @@
 
 ## Download
 
-Prebuilt Windows packages (onedir) are published on GitHub Releases:
+Prebuilt packages for **Windows (x64)** and **macOS (Apple Silicon arm64)** are published on GitHub Releases:
 
 **https://github.com/Alexxxxxxxxxxxxy/schinza-wechat-certificate/releases**
 
-1. Open the latest release (e.g. `schinza:1.8.6`)
-2. Download the zip / asset and extract the **whole** `Schinza` folder
-3. Run `Schinza.exe` (do not ship a lone `.exe` without `_internal/`)
+| Platform | Asset | Install |
+|---|---|---|
+| Windows x64 | `Schinza-windows-x64.zip` | Extract the **whole** `Schinza` folder and run `Schinza.exe` (keep `_internal/`) |
+| macOS · Apple Silicon | `Schinza-mac-arm64.dmg` / `.zip` | Open the DMG and drag `Schinza.app` into Applications; first launch: right-click → Open (unsigned) |
 
 Source repository: [Alexxxxxxxxxxxxy/schinza-wechat-certificate](https://github.com/Alexxxxxxxxxxxxy/schinza-wechat-certificate)
 
@@ -62,6 +63,16 @@ All credentials and exports stay under local `data/`. The app never uploads auto
 
 ---
 
+## Contributors
+
+<a href="https://github.com/meichiny"><img src="https://avatars.githubusercontent.com/meichiny?s=80" width="48" height="48" alt="meichiny" title="meichiny" /></a>
+<a href="https://github.com/Alexxxxxxxxxxxxy"><img src="https://avatars.githubusercontent.com/Alexxxxxxxxxxxxy?s=80" width="48" height="48" alt="Alexxxxxxxxxxxxy" title="Alexxxxxxxxxxxxy" /></a>
+
+- [@meichiny](https://github.com/meichiny) — macOS support (cross-platform code, dual-arch packaging, docs) via [#4](https://github.com/Alexxxxxxxxxxxxy/schinza-wechat-certificate/pull/4)
+- [@Alexxxxxxxxxxxxy](https://github.com/Alexxxxxxxxxxxxy) — project author & maintainer
+
+---
+
 ## UI
 
 Sidebar navigation (dark slate + green accent):
@@ -75,7 +86,7 @@ Sidebar navigation (dark slate + green accent):
 ## Requirements
 
 - **Windows** 10 / 11 (x64)
-- **macOS** 12.0+ (Monterey or later — WeChat Mac requires macOS 12+; the bundle's own binaries need only 11.0 arm64 / 10.13 x64)
+- **macOS** 12.0+ (Monterey or later — WeChat Mac requires macOS 12+; the bundle's own binaries need only 11.0 (arm64))
 - WeChat **Desktop** (for credential capture; verified on both Windows & macOS)
 - Python **3.11+** (development / build)
 - For Windows packaging: OpenSSL DLLs from your Python/conda env (`libssl` / `libcrypto`); macOS packaging needs no extra DLLs
@@ -192,13 +203,13 @@ The script creates a `.venv-mac` virtualenv → copies the CA from `~/.mitmproxy
 
 ### System requirements (macOS bundle)
 
-- **Apple Silicon Mac** (M1 or later) for the arm64 bundle, or **Intel Mac** for the x64 bundle
-- **macOS 12.0 (Monterey)** or later — WeChat Mac 4.x requires macOS 12+; the bundle's own binaries require only minos 11.0 (arm64) / 10.13 (x64)
+- **Apple Silicon Mac** (M1 or later) — CI releases ship an arm64 bundle
+- **macOS 12.0 (Monterey)** or later — WeChat Mac 4.x requires macOS 12+; the bundle's own binaries require only 11.0 (arm64)
 - **WeChat Mac** desktop app installed (required for credential capture; WeChat ships a universal2 build for both architectures)
 - An **administrator account** — installing the trust root and setting the system proxy prompt for the login password
 - ~300 MB free disk space; 2 GB+ free memory recommended
 
-For an **Intel (x86_64)** build, run `./build_mac_x64.sh` instead — it creates a Rosetta x86_64 venv and produces `dist/Schinza-x64.app` / `dist/Schinza-mac-x64.dmg` (requires Rosetta 2 and a universal2 python.org Python).
+CI does **not** publish an Intel (x86_64) bundle (the Intel `macos-13` runner was retired). Local users can build one with `./build_mac_x64.sh` — a Rosetta x86_64 venv that produces `dist/Schinza-x64.app` / `dist/Schinza-mac-x64.dmg` (requires Rosetta 2 and a universal2 python.org Python).
 
 ---
 

@@ -34,13 +34,14 @@
 
 ## 下载
 
-预编译 Windows 包（onedir）发布在 GitHub Releases：
+**Windows (x64)** 与 **macOS（Apple Silicon arm64）** 预编译包发布在 GitHub Releases：
 
 **https://github.com/Alexxxxxxxxxxxxy/schinza-wechat-certificate/releases**
 
-1. 打开最新 Release（如 `schinza:1.8.6`）
-2. 下载压缩包并解压**整个** `Schinza` 文件夹
-3. 运行 `Schinza.exe`（请勿只拷贝单个 `.exe`，需保留 `_internal/` 等依赖）
+| 平台 | 安装包 | 安装方式 |
+|---|---|---|
+| Windows x64 | `Schinza-windows-x64.zip` | 解压**整个** `Schinza` 文件夹，运行 `Schinza.exe`（保留 `_internal/`） |
+| macOS · Apple 芯片 | `Schinza-mac-arm64.dmg` / `.zip` | 打开 DMG 把 `Schinza.app` 拖入 Applications；首次启动「右键 → 打开」（未签名） |
 
 源码仓库：[Alexxxxxxxxxxxxy/schinza-wechat-certificate](https://github.com/Alexxxxxxxxxxxxy/schinza-wechat-certificate)
 
@@ -48,7 +49,7 @@
 
 ## 项目简介
 
-**Schinza** 是一款开源 Windows 桌面工具，在本机完成公众号凭证与历史文章相关操作：
+**Schinza** 是一款开源 Windows / macOS 桌面工具，在本机完成公众号凭证与历史文章相关操作：
 
 | 模块 | 功能 |
 |------|------|
@@ -59,6 +60,16 @@
 | **同步服务器** | 导入 Schinza 公众号列表 CSV；本地凭证按名称匹配后一键复制或分批上传（≤50/批）到**你自己的**开放接口服务器 |
 
 所有凭证与导出保存在本机 `data/`；应用不会自动上传，仅「同步服务器」页签会按你填写的服务器地址上传匹配到的凭证（**无内置默认地址，需自行填写**，如 `https://your-server.com/schinza`）。
+
+---
+
+## 贡献者
+
+<a href="https://github.com/meichiny"><img src="https://avatars.githubusercontent.com/meichiny?s=80" width="48" height="48" alt="meichiny" title="meichiny" /></a>
+<a href="https://github.com/Alexxxxxxxxxxxxy"><img src="https://avatars.githubusercontent.com/Alexxxxxxxxxxxxy?s=80" width="48" height="48" alt="Alexxxxxxxxxxxxy" title="Alexxxxxxxxxxxxy" /></a>
+
+- [@meichiny](https://github.com/meichiny) — macOS 支持（跨平台代码、双架构打包、文档），见 [#4](https://github.com/Alexxxxxxxxxxxxy/schinza-wechat-certificate/pull/4)
+- [@Alexxxxxxxxxxxxy](https://github.com/Alexxxxxxxxxxxxy) — 项目作者与维护者
 
 ---
 
@@ -75,7 +86,7 @@
 ## 运行环境
 
 - **Windows** 10 / 11（x64）
-- **macOS** 12.0+（Monterey 及以上——微信 Mac 版要求 macOS 12+；程序自身二进制仅需 11.0 (arm64) / 10.13 (x64)）
+- **macOS** 12.0+（Monterey 及以上——微信 Mac 版要求 macOS 12+；程序自身二进制仅需 11.0 (arm64)）
 - 微信**桌面版**（用于凭证捕获，Windows / macOS 均已实测；微信为 universal2 双架构安装包）
 - Python **3.11+**（开发 / 打包）
 - Windows 打包时需要 Python/conda 环境中的 OpenSSL DLL（`libssl` / `libcrypto`）；macOS 打包不需要额外 DLL
@@ -188,13 +199,13 @@ dist/Schinza.app
 
 ### macOS 系统要求（.app / .dmg 产物）
 
-- **Apple Silicon Mac**（M1 及更新，用 arm64 版）或 **Intel Mac**（用 x64 版）
-- **macOS 12.0 (Monterey)** 或更高版本——微信 Mac 4.x 要求 macOS 12+；程序自身二进制仅需 11.0 (arm64) / 10.13 (x64)
+- **Apple Silicon Mac**（M1 及更新）——CI 发布的安装包为 arm64 版
+- **macOS 12.0 (Monterey)** 或更高版本——微信 Mac 4.x 要求 macOS 12+；程序自身二进制仅需 11.0 (arm64)
 - 已安装**微信 Mac 版**（用于凭证捕获；微信为 universal2 双架构，两种芯片均可运行）
 - 需要**管理员权限**的账号（安装信任根证书、设置系统代理时会弹出密码框）
 - 建议 300MB 磁盘空间、2GB 以上可用内存
 
-需要 **Intel (x86_64)** 版时运行 `./build_mac_x64.sh`（基于 Rosetta 创建 x86_64 虚拟环境，需 Rosetta 2 与 python.org 的 universal2 Python）→ 产出 `dist/Schinza-x64.app` / `dist/Schinza-mac-x64.dmg`。
+CI 暂不发布 Intel (x86_64) 版（Intel 的 `macos-13` runner 已退役）。本地可自行用 `./build_mac_x64.sh` 构建（基于 Rosetta 创建 x86_64 虚拟环境，需 Rosetta 2 与 python.org 的 universal2 Python）→ 产出 `dist/Schinza-x64.app` / `dist/Schinza-mac-x64.dmg`。
 
 ---
 
