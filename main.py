@@ -34,8 +34,8 @@ def _prepare_dll_search(root: Path, res: Path) -> None:
                 os.add_dll_directory(str(d))
             except (OSError, FileNotFoundError):
                 pass
-    prefix = ";".join(str(d) for d in dirs)
-    os.environ["PATH"] = prefix + ";" + os.environ.get("PATH", "")
+    prefix = os.pathsep.join(str(d) for d in dirs)
+    os.environ["PATH"] = prefix + os.pathsep + os.environ.get("PATH", "")
 
 
 def _ensure_stdio(root: Path) -> None:
@@ -65,6 +65,25 @@ def _show_fatal(title: str, exc: BaseException) -> None:
     import traceback
 
     body = f"{title}\n\n{exc}\n\n{traceback.format_exc()}"
+    if sys.platform == "darwin":
+        try:
+            import subprocess
+
+            safe = (
+                body.replace("\\", "\\\\").replace('"', '\\"').replace("\n", " return ")
+            )
+            subprocess.run(
+                [
+                    "osascript",
+                    "-e",
+                    f'display alert "Schinza 凭证助手" message "{safe}" as critical',
+                ],
+                check=False,
+                timeout=5,
+            )
+            return
+        except Exception:
+            pass
     try:
         import ctypes
 
