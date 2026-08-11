@@ -194,6 +194,8 @@ dist/Schinza.app
 - 需要**管理员权限**的账号（安装信任根证书、设置系统代理时会弹出密码框）
 - 建议 300MB 磁盘空间、2GB 以上可用内存
 
+需要 **Intel (x86_64)** 版时运行 `./build_mac_x64.sh`（基于 Rosetta 创建 x86_64 虚拟环境，需 Rosetta 2 与 python.org 的 universal2 Python）→ 产出 `dist/Schinza-x64.app` / `dist/Schinza-mac-x64.dmg`。
+
 ---
 
 ## 目录结构

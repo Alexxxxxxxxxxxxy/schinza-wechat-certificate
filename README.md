@@ -198,6 +198,8 @@ The script creates a `.venv-mac` virtualenv → copies the CA from `~/.mitmproxy
 - An **administrator account** — installing the trust root and setting the system proxy prompt for the login password
 - ~300 MB free disk space; 2 GB+ free memory recommended
 
+For an **Intel (x86_64)** build, run `./build_mac_x64.sh` instead — it creates a Rosetta x86_64 venv and produces `dist/Schinza-x64.app` / `dist/Schinza-mac-x64.dmg` (requires Rosetta 2 and a universal2 python.org Python).
+
 ---
 
 ## Project layout
