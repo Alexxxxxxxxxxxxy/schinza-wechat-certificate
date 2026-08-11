@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import queue
 import re
+import sys
 import threading
 import time
 import webbrowser
@@ -17,6 +18,10 @@ import customtkinter as ctk
 import pyperclip
 from PIL import Image
 
+# UI font: PingFang SC on macOS, Microsoft YaHei UI on Windows
+UI_FONT = "PingFang SC" if sys.platform == "darwin" else "Microsoft YaHei UI"
+MONO_FONT = "Menlo" if sys.platform == "darwin" else "Consolas"
+
 from app.article_reader import (
     ARTICLE_EXPORT_FORMATS,
     ARTICLE_EXPORT_LABELS,
@@ -26,7 +31,12 @@ from app.article_reader import (
     format_key_for_article_label,
     write_article_export,
 )
-from app.ca_setup import PROXY_HOST, PROXY_PORT, install_ca_windows, open_p12_in_explorer
+from app.ca_setup import (
+    PROXY_HOST,
+    PROXY_PORT,
+    install_ca as install_ca_platform,
+    open_p12_in_explorer,
+)
 from app.capture_target import expected_biz, resolve_capture_target
 from app.batch_import import BatchRow, parse_batch_import
 from app.clipboard_watch import ClipboardWatcher
@@ -135,7 +145,7 @@ class AccountCard(ctk.CTkFrame):
         self.name_lbl = ctk.CTkLabel(
             top,
             text=account.get("name") or "未命名",
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=16, weight="bold"),
+            font=ctk.CTkFont(family=UI_FONT, size=16, weight="bold"),
             text_color=COLORS["text"],
             anchor="w",
         )
@@ -144,7 +154,7 @@ class AccountCard(ctk.CTkFrame):
         self.timer_lbl = ctk.CTkLabel(
             top,
             text="",
-            font=ctk.CTkFont(family="Consolas", size=15, weight="bold"),
+            font=ctk.CTkFont(family=MONO_FONT, size=15, weight="bold"),
             text_color=COLORS["accent"],
             anchor="e",
         )
@@ -153,7 +163,7 @@ class AccountCard(ctk.CTkFrame):
         self.meta_lbl = ctk.CTkLabel(
             self,
             text="",
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
+            font=ctk.CTkFont(family=UI_FONT, size=12),
             text_color=COLORS["muted"],
             anchor="w",
             justify="left",
@@ -172,7 +182,7 @@ class AccountCard(ctk.CTkFrame):
             fg_color=COLORS["accent"],
             hover_color=COLORS["accent_hover"],
             text_color="#0b1412",
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=13, weight="bold"),
+            font=ctk.CTkFont(family=UI_FONT, size=13, weight="bold"),
             command=lambda: self.app.copy_credentials(self.account_id),
         )
         self.copy_btn.pack(side="left", padx=(0, 14))
@@ -186,7 +196,7 @@ class AccountCard(ctk.CTkFrame):
             fg_color=COLORS["warn"],
             hover_color="#ebab6e",
             text_color="#1a1208",
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=13, weight="bold"),
+            font=ctk.CTkFont(family=UI_FONT, size=13, weight="bold"),
             command=lambda: self.app.renew_account(self.account_id),
         )
         self.renew_btn.pack(side="left", padx=(0, 14))
@@ -200,7 +210,7 @@ class AccountCard(ctk.CTkFrame):
             fg_color=COLORS["border"],
             hover_color="#3a4a5e",
             text_color=COLORS["text"],
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=13),
+            font=ctk.CTkFont(family=UI_FONT, size=13),
             command=lambda: self.app.open_article(self.account_id),
         )
         self.open_btn.pack(side="left", padx=(0, 14))
@@ -216,7 +226,7 @@ class AccountCard(ctk.CTkFrame):
             border_color=COLORS["danger"],
             hover_color="#3a2222",
             text_color=COLORS["danger"],
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=13),
+            font=ctk.CTkFont(family=UI_FONT, size=13),
             command=lambda: self.app.delete_account(self.account_id),
         )
         self.del_btn.pack(side="left")
@@ -372,7 +382,7 @@ class CertificateApp(ctk.CTk):
         ctk.CTkLabel(
             title_row,
             text="Schinza",
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=20, weight="bold"),
+            font=ctk.CTkFont(family=UI_FONT, size=20, weight="bold"),
             text_color=COLORS["text"],
             anchor="w",
         ).pack(side="left")
@@ -380,7 +390,7 @@ class CertificateApp(ctk.CTk):
         ctk.CTkLabel(
             header,
             text=f"凭证 {TTL_MINUTES} 分钟 · 历史文章 · HTML / MD / TXT / JSON / Word",
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
+            font=ctk.CTkFont(family=UI_FONT, size=12),
             text_color=COLORS["muted"],
             anchor="e",
         ).grid(row=0, column=1, sticky="e", padx=20)
@@ -400,7 +410,7 @@ class CertificateApp(ctk.CTk):
         ctk.CTkLabel(
             side,
             text="栏目",
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=11),
+            font=ctk.CTkFont(family=UI_FONT, size=11),
             text_color=COLORS["muted"],
             anchor="w",
         ).grid(row=0, column=0, sticky="ew", padx=18, pady=(20, 8))
@@ -416,7 +426,7 @@ class CertificateApp(ctk.CTk):
                 fg_color=COLORS["nav_idle"],
                 hover_color=COLORS["border"],
                 text_color=COLORS["text"],
-                font=ctk.CTkFont(family="Microsoft YaHei UI", size=14, weight="bold"),
+                font=ctk.CTkFont(family=UI_FONT, size=14, weight="bold"),
                 anchor="w",
                 command=lambda k=key: self._show_tab(k),
             )
@@ -431,7 +441,7 @@ class CertificateApp(ctk.CTk):
             fg_color=COLORS["nav_idle"],
             hover_color=COLORS["border"],
             text_color=COLORS["muted"],
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=13),
+            font=ctk.CTkFont(family=UI_FONT, size=13),
             anchor="w",
             command=self.manual_check_update,
         )
@@ -455,6 +465,21 @@ class CertificateApp(ctk.CTk):
         return None
 
     def _apply_window_icon(self) -> None:
+        if sys.platform == "darwin":
+            # macOS: wm_iconphoto with a PNG PhotoImage (iconbitmap only accepts .icns)
+            png = self._resolve_asset("logo-128.png") or self._resolve_asset("logo.png")
+            if png is not None:
+                try:
+                    from PIL import ImageTk
+
+                    img = ImageTk.PhotoImage(
+                        Image.open(png).resize((128, 128), Image.LANCZOS)
+                    )
+                    self._window_icon_photo = img  # keep a reference alive
+                    self.wm_iconphoto(True, img)
+                except Exception:
+                    pass
+            return
         ico = self._resolve_asset("schinza.ico")
         if ico is None:
             return
@@ -517,7 +542,7 @@ class CertificateApp(ctk.CTk):
         ctk.CTkLabel(
             panel,
             text="① 首次使用：安装抓包证书（MITM CA）",
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=15, weight="bold"),
+            font=ctk.CTkFont(family=UI_FONT, size=15, weight="bold"),
             text_color=COLORS["text"],
             anchor="w",
         ).grid(row=0, column=0, sticky="w", padx=18, pady=(14, 4))
@@ -529,7 +554,7 @@ class CertificateApp(ctk.CTk):
                 f"程序会启动本地代理 {PROXY_HOST}:{PROXY_PORT}，并使用随包附带的 mitmproxy-ca-cert.p12。"
                 "每人只需安装一次 CA，然后重启微信。"
             ),
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
+            font=ctk.CTkFont(family=UI_FONT, size=12),
             text_color=COLORS["muted"],
             anchor="w",
             justify="left",
@@ -548,7 +573,7 @@ class CertificateApp(ctk.CTk):
             fg_color=COLORS["accent"],
             hover_color=COLORS["accent_hover"],
             text_color="#052e16",
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=13, weight="bold"),
+            font=ctk.CTkFont(family=UI_FONT, size=13, weight="bold"),
             command=self.install_ca,
         ).pack(side="left", padx=(0, 16))
 
@@ -572,7 +597,7 @@ class CertificateApp(ctk.CTk):
             fg_color=COLORS["border"],
             hover_color="#3a4a5e",
             text_color=COLORS["text"],
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=13),
+            font=ctk.CTkFont(family=UI_FONT, size=13),
             command=self.toggle_proxy,
         )
         self.proxy_btn.pack(side="left", padx=(0, 16))
@@ -580,7 +605,7 @@ class CertificateApp(ctk.CTk):
         self.proxy_lbl = ctk.CTkLabel(
             panel,
             text="代理未启动 · 请优先用下方「添加并抓包」（会自动启动代理）",
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
+            font=ctk.CTkFont(family=UI_FONT, size=12),
             text_color=COLORS["muted"],
             anchor="w",
             justify="left",
@@ -602,7 +627,7 @@ class CertificateApp(ctk.CTk):
         ctk.CTkLabel(
             form,
             text="添加公众号",
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=15, weight="bold"),
+            font=ctk.CTkFont(family=UI_FONT, size=15, weight="bold"),
             text_color=COLORS["text"],
         ).grid(row=0, column=0, columnspan=3, sticky="w", padx=18, pady=(14, 8))
 
@@ -610,7 +635,7 @@ class CertificateApp(ctk.CTk):
             form,
             text="名称",
             text_color=COLORS["muted"],
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=13),
+            font=ctk.CTkFont(family=UI_FONT, size=13),
         ).grid(row=1, column=0, sticky="w", padx=(18, 8), pady=6)
 
         self.name_entry = ctk.CTkEntry(
@@ -621,7 +646,7 @@ class CertificateApp(ctk.CTk):
             border_color=COLORS["border"],
             fg_color=COLORS["card"],
             text_color=COLORS["text"],
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=13),
+            font=ctk.CTkFont(family=UI_FONT, size=13),
         )
         self.name_entry.grid(row=1, column=1, columnspan=2, sticky="ew", padx=(0, 18), pady=6)
 
@@ -629,7 +654,7 @@ class CertificateApp(ctk.CTk):
             form,
             text="文章链接",
             text_color=COLORS["muted"],
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=13),
+            font=ctk.CTkFont(family=UI_FONT, size=13),
         ).grid(row=2, column=0, sticky="w", padx=(18, 8), pady=6)
 
         self.url_entry = ctk.CTkEntry(
@@ -640,7 +665,7 @@ class CertificateApp(ctk.CTk):
             border_color=COLORS["border"],
             fg_color=COLORS["card"],
             text_color=COLORS["text"],
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=13),
+            font=ctk.CTkFont(family=UI_FONT, size=13),
         )
         self.url_entry.grid(row=2, column=1, sticky="ew", padx=(0, 10), pady=6)
 
@@ -653,7 +678,7 @@ class CertificateApp(ctk.CTk):
             fg_color=COLORS["accent"],
             hover_color=COLORS["accent_hover"],
             text_color="#0b1412",
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=13, weight="bold"),
+            font=ctk.CTkFont(family=UI_FONT, size=13, weight="bold"),
             command=self.add_account,
         )
         self.add_btn.grid(row=2, column=2, sticky="e", padx=(0, 18), pady=6)
@@ -668,7 +693,7 @@ class CertificateApp(ctk.CTk):
                 "再在微信桌面打开该公众号任意一篇文章。"
             ),
             text_color=COLORS["muted"],
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
+            font=ctk.CTkFont(family=UI_FONT, size=12),
             anchor="w",
             justify="left",
             wraplength=700,
@@ -710,7 +735,7 @@ class CertificateApp(ctk.CTk):
         ctk.CTkLabel(
             head,
             text="已添加公众号",
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=15, weight="bold"),
+            font=ctk.CTkFont(family=UI_FONT, size=15, weight="bold"),
             text_color=COLORS["text"],
             anchor="w",
         ).grid(row=0, column=0, sticky="w")
@@ -724,7 +749,7 @@ class CertificateApp(ctk.CTk):
             fg_color=COLORS["warn"],
             hover_color="#ebab6e",
             text_color="#1a1208",
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=13, weight="bold"),
+            font=ctk.CTkFont(family=UI_FONT, size=13, weight="bold"),
             command=self.renew_all_accounts,
         ).grid(row=0, column=1, sticky="e")
 
@@ -736,7 +761,7 @@ class CertificateApp(ctk.CTk):
             border_color=COLORS["border"],
             fg_color=COLORS["card"],
             text_color=COLORS["text"],
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
+            font=ctk.CTkFont(family=UI_FONT, size=12),
         )
         self.search_entry.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(6, 0))
         self.search_entry.bind("<KeyRelease>", lambda _e: self._apply_name_filter())
@@ -763,7 +788,7 @@ class CertificateApp(ctk.CTk):
         ctk.CTkLabel(
             panel,
             text="拉取公众号历史文章",
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=15, weight="bold"),
+            font=ctk.CTkFont(family=UI_FONT, size=15, weight="bold"),
             text_color=COLORS["text"],
             anchor="w",
         ).grid(row=0, column=0, columnspan=4, sticky="w", padx=18, pady=(14, 4))
@@ -771,7 +796,7 @@ class CertificateApp(ctk.CTk):
         ctk.CTkLabel(
             panel,
             text="选择公众号与时间范围后拉取；支持列表导出与正文导出（HTML / Markdown / TXT / JSON / Word）。",
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
+            font=ctk.CTkFont(family=UI_FONT, size=12),
             text_color=COLORS["muted"],
             anchor="w",
             justify="left",
@@ -782,7 +807,7 @@ class CertificateApp(ctk.CTk):
             panel,
             text="公众号",
             text_color=COLORS["muted"],
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=13),
+            font=ctk.CTkFont(family=UI_FONT, size=13),
         ).grid(row=2, column=0, sticky="w", padx=(18, 8), pady=6)
 
         self.hist_account_menu = ctk.CTkOptionMenu(
@@ -794,8 +819,8 @@ class CertificateApp(ctk.CTk):
             button_color=COLORS["border"],
             button_hover_color="#3a4a5e",
             text_color=COLORS["text"],
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=13),
-            dropdown_font=ctk.CTkFont(family="Microsoft YaHei UI", size=13),
+            font=ctk.CTkFont(family=UI_FONT, size=13),
+            dropdown_font=ctk.CTkFont(family=UI_FONT, size=13),
             command=self._on_hist_account_change,
         )
         self.hist_account_menu.grid(row=2, column=1, sticky="ew", padx=(0, 10), pady=6)
@@ -811,8 +836,8 @@ class CertificateApp(ctk.CTk):
             button_color=COLORS["border"],
             button_hover_color="#3a4a5e",
             text_color=COLORS["text"],
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=13),
-            dropdown_font=ctk.CTkFont(family="Microsoft YaHei UI", size=13),
+            font=ctk.CTkFont(family=UI_FONT, size=13),
+            dropdown_font=ctk.CTkFont(family=UI_FONT, size=13),
             command=self._on_history_range_change,
         )
         self.hist_range_menu.set(self._history_range_label())
@@ -827,7 +852,7 @@ class CertificateApp(ctk.CTk):
             fg_color=COLORS["accent"],
             hover_color=COLORS["accent_hover"],
             text_color="#052e16",
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=13, weight="bold"),
+            font=ctk.CTkFont(family=UI_FONT, size=13, weight="bold"),
             command=self.start_history_fetch,
         )
         self.hist_fetch_btn.grid(row=2, column=3, sticky="e", padx=(0, 18), pady=6)
@@ -836,7 +861,7 @@ class CertificateApp(ctk.CTk):
             panel,
             text="请选择公众号与时间范围后点击拉取。",
             text_color=COLORS["muted"],
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
+            font=ctk.CTkFont(family=UI_FONT, size=12),
             anchor="w",
             justify="left",
             wraplength=720,
@@ -850,7 +875,7 @@ class CertificateApp(ctk.CTk):
             list_tools,
             text="列表导出",
             text_color=COLORS["muted"],
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
+            font=ctk.CTkFont(family=UI_FONT, size=12),
         ).pack(side="left", padx=(0, 10))
 
         self.hist_format_menu = ctk.CTkOptionMenu(
@@ -863,8 +888,8 @@ class CertificateApp(ctk.CTk):
             button_color=COLORS["border"],
             button_hover_color="#3a4a5e",
             text_color=COLORS["text"],
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
-            dropdown_font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
+            font=ctk.CTkFont(family=UI_FONT, size=12),
+            dropdown_font=ctk.CTkFont(family=UI_FONT, size=12),
         )
         self.hist_format_menu.set(FORMAT_LABELS[0])
         self.hist_format_menu.pack(side="left", padx=(0, 14))
@@ -889,7 +914,7 @@ class CertificateApp(ctk.CTk):
             fg_color=COLORS["accent"],
             hover_color=COLORS["accent_hover"],
             text_color="#052e16",
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=12, weight="bold"),
+            font=ctk.CTkFont(family=UI_FONT, size=12, weight="bold"),
             command=self.export_history_file,
         ).pack(side="left", padx=(0, 20))
 
@@ -922,7 +947,7 @@ class CertificateApp(ctk.CTk):
             batch_tools,
             text="正文导出",
             text_color=COLORS["muted"],
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
+            font=ctk.CTkFont(family=UI_FONT, size=12),
         ).pack(side="left", padx=(0, 10))
 
         self.article_fmt_menu = ctk.CTkOptionMenu(
@@ -935,8 +960,8 @@ class CertificateApp(ctk.CTk):
             button_color=COLORS["border"],
             button_hover_color="#3a4a5e",
             text_color=COLORS["text"],
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
-            dropdown_font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
+            font=ctk.CTkFont(family=UI_FONT, size=12),
+            dropdown_font=ctk.CTkFont(family=UI_FONT, size=12),
         )
         self.article_fmt_menu.set("Markdown")
         self.article_fmt_menu.pack(side="left", padx=(0, 14))
@@ -972,7 +997,7 @@ class CertificateApp(ctk.CTk):
             fg_color=COLORS["accent"],
             hover_color=COLORS["accent_hover"],
             text_color="#052e16",
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=12, weight="bold"),
+            font=ctk.CTkFont(family=UI_FONT, size=12, weight="bold"),
             command=self.batch_export_selected,
         )
         self.batch_export_btn.pack(side="left", padx=(0, 14))
@@ -985,7 +1010,7 @@ class CertificateApp(ctk.CTk):
         ctk.CTkLabel(
             list_wrap,
             text="文章列表（勾选后可批量导出正文）",
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=15, weight="bold"),
+            font=ctk.CTkFont(family=UI_FONT, size=15, weight="bold"),
             text_color=COLORS["text"],
             anchor="w",
         ).grid(row=0, column=0, sticky="w", pady=(0, 10))
@@ -1016,7 +1041,7 @@ class CertificateApp(ctk.CTk):
         ctk.CTkLabel(
             panel,
             text="同步服务器",
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=15, weight="bold"),
+            font=ctk.CTkFont(family=UI_FONT, size=15, weight="bold"),
             text_color=COLORS["text"],
             anchor="w",
         ).grid(row=0, column=0, columnspan=4, sticky="w", padx=18, pady=(14, 4))
@@ -1024,7 +1049,7 @@ class CertificateApp(ctk.CTk):
         ctk.CTkLabel(
             panel,
             text="导入 Schinza 公众号列表，将本地有效凭证按名称匹配后分批上传（每批 ≤ 50）。",
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
+            font=ctk.CTkFont(family=UI_FONT, size=12),
             text_color=COLORS["muted"],
             anchor="w",
             justify="left",
@@ -1035,7 +1060,7 @@ class CertificateApp(ctk.CTk):
             panel,
             text="服务器地址",
             text_color=COLORS["muted"],
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=13),
+            font=ctk.CTkFont(family=UI_FONT, size=13),
         ).grid(row=2, column=0, sticky="w", padx=(18, 8), pady=6)
 
         self.sync_base_entry = ctk.CTkEntry(
@@ -1047,7 +1072,7 @@ class CertificateApp(ctk.CTk):
             border_color=COLORS["border"],
             text_color=COLORS["text"],
             placeholder_text="https://example.com/schinza",
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=13),
+            font=ctk.CTkFont(family=UI_FONT, size=13),
         )
         self.sync_base_entry.grid(row=2, column=1, sticky="w", padx=(0, 10), pady=6)
 
@@ -1060,7 +1085,7 @@ class CertificateApp(ctk.CTk):
             fg_color=COLORS["border"],
             hover_color="#3a4a5e",
             text_color=COLORS["text"],
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=13),
+            font=ctk.CTkFont(family=UI_FONT, size=13),
             command=self._import_school_accounts,
         ).grid(row=2, column=2, sticky="w", padx=(0, 10), pady=6)
 
@@ -1073,7 +1098,7 @@ class CertificateApp(ctk.CTk):
             fg_color=COLORS["accent"],
             hover_color=COLORS["accent_hover"],
             text_color="#052e16",
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=13, weight="bold"),
+            font=ctk.CTkFont(family=UI_FONT, size=13, weight="bold"),
             command=self._sync_upload,
         )
         self.sync_upload_btn.grid(row=2, column=3, sticky="e", padx=(0, 18), pady=6)
@@ -1082,7 +1107,7 @@ class CertificateApp(ctk.CTk):
             panel,
             text="尚未导入公众号列表。",
             text_color=COLORS["muted"],
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
+            font=ctk.CTkFont(family=UI_FONT, size=12),
             anchor="w",
             justify="left",
             wraplength=720,
@@ -1104,7 +1129,7 @@ class CertificateApp(ctk.CTk):
             fg_color=COLORS["warn"],
             hover_color="#ebab6e",
             text_color="#1a1208",
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=13, weight="bold"),
+            font=ctk.CTkFont(family=UI_FONT, size=13, weight="bold"),
             command=self._copy_all_credentials,
         )
         self.sync_copy_btn.pack(side="left", padx=(0, 14))
@@ -1113,7 +1138,7 @@ class CertificateApp(ctk.CTk):
             btns,
             text="同步会将匹配到的凭证提交到上方服务器地址，请确认可信后再操作。",
             text_color=COLORS["muted"],
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
+            font=ctk.CTkFont(family=UI_FONT, size=12),
             anchor="w",
         ).pack(side="left")
 
@@ -1128,7 +1153,7 @@ class CertificateApp(ctk.CTk):
             border_color=COLORS["border"],
             border_width=1,
             corner_radius=12,
-            font=ctk.CTkFont(family="Consolas", size=12),
+            font=ctk.CTkFont(family=MONO_FONT, size=12),
             text_color=COLORS["muted"],
             wrap="none",
         )
@@ -1140,7 +1165,7 @@ class CertificateApp(ctk.CTk):
             self,
             text="Schinza · MIT License · 凭证保存在本机 data/ · 同步上传前请确认目标服务器可信",
             text_color=COLORS["muted"],
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=11),
+            font=ctk.CTkFont(family=UI_FONT, size=11),
         )
         foot.grid(row=2, column=0, sticky="ew", padx=24, pady=(0, 12))
 
@@ -1449,7 +1474,7 @@ class CertificateApp(ctk.CTk):
     # ── credentials tab actions ───────────────────────────────────────
 
     def install_ca(self) -> None:
-        ok, msg = install_ca_windows(self.root_dir)
+        ok, msg = install_ca_platform(self.root_dir)
         self.proxy_lbl.configure(text=msg, text_color=COLORS["ok"] if ok else COLORS["danger"])
         self.set_status(msg, ok=ok)
 
@@ -1595,7 +1620,7 @@ class CertificateApp(ctk.CTk):
         ctk.CTkLabel(
             card,
             text=headline,
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=16, weight="bold"),
+            font=ctk.CTkFont(family=UI_FONT, size=16, weight="bold"),
             text_color=COLORS["ok"] if ok else COLORS["danger"],
             anchor="w",
         ).grid(row=0, column=0, sticky="ew", padx=18, pady=(16, 4))
@@ -1603,7 +1628,7 @@ class CertificateApp(ctk.CTk):
         ctk.CTkLabel(
             card,
             text=body,
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
+            font=ctk.CTkFont(family=UI_FONT, size=12),
             text_color=COLORS["muted"],
             anchor="w",
             justify="left",
@@ -1628,7 +1653,7 @@ class CertificateApp(ctk.CTk):
                 hover_color=COLORS["accent_hover"],
                 text_color="#0b1412",
                 font=ctk.CTkFont(
-                    family="Microsoft YaHei UI", size=13, weight="bold"
+                    family=UI_FONT, size=13, weight="bold"
                 ),
                 command=lambda: (on_action(), close()),
             ).pack(side="right", padx=(8, 0))
@@ -1642,7 +1667,7 @@ class CertificateApp(ctk.CTk):
             fg_color=COLORS["border"],
             hover_color="#3a4a5e",
             text_color=COLORS["text"],
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=13),
+            font=ctk.CTkFont(family=UI_FONT, size=13),
             command=close,
         ).pack(side="right")
 
@@ -2004,7 +2029,7 @@ class CertificateApp(ctk.CTk):
                 self.list_frame,
                 text=empty_text,
                 text_color=COLORS["muted"],
-                font=ctk.CTkFont(family="Microsoft YaHei UI", size=13),
+                font=ctk.CTkFont(family=UI_FONT, size=13),
             )
             empty.grid(row=0, column=0, pady=40)
             return
@@ -2126,7 +2151,7 @@ class CertificateApp(ctk.CTk):
         ctk.CTkLabel(
             card,
             text="自定义拉取天数",
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=16, weight="bold"),
+            font=ctk.CTkFont(family=UI_FONT, size=16, weight="bold"),
             text_color=COLORS["text"],
             anchor="w",
         ).grid(row=0, column=0, sticky="ew", padx=18, pady=(16, 4))
@@ -2134,7 +2159,7 @@ class CertificateApp(ctk.CTk):
         ctk.CTkLabel(
             card,
             text=f"请输入要拉取的天数（1 - {MAX_CUSTOM_DAYS}），例如 15 表示近 15 天。",
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
+            font=ctk.CTkFont(family=UI_FONT, size=12),
             text_color=COLORS["muted"],
             anchor="w",
             justify="left",
@@ -2148,7 +2173,7 @@ class CertificateApp(ctk.CTk):
             border_color=COLORS["border"],
             fg_color=COLORS["card"],
             text_color=COLORS["text"],
-            font=ctk.CTkFont(family="Consolas", size=14),
+            font=ctk.CTkFont(family=MONO_FONT, size=14),
         )
         entry.grid(row=2, column=0, sticky="ew", padx=18, pady=(0, 8))
         entry.insert(0, str(self._history_custom_days or CUSTOM_DAYS_DEFAULT))
@@ -2158,7 +2183,7 @@ class CertificateApp(ctk.CTk):
         err_lbl = ctk.CTkLabel(
             card,
             text="",
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=11),
+            font=ctk.CTkFont(family=UI_FONT, size=11),
             text_color=COLORS["danger"],
             anchor="w",
         )
@@ -2195,7 +2220,7 @@ class CertificateApp(ctk.CTk):
             fg_color=COLORS["border"],
             hover_color="#3a4a5e",
             text_color=COLORS["text"],
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=13),
+            font=ctk.CTkFont(family=UI_FONT, size=13),
             command=close_cancel,
         ).pack(side="left", padx=(0, 8))
 
@@ -2208,7 +2233,7 @@ class CertificateApp(ctk.CTk):
             fg_color=COLORS["accent"],
             hover_color=COLORS["accent_hover"],
             text_color="#052e16",
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=13, weight="bold"),
+            font=ctk.CTkFont(family=UI_FONT, size=13, weight="bold"),
             command=confirm,
         ).pack(side="left")
 
@@ -2366,7 +2391,7 @@ class CertificateApp(ctk.CTk):
                 self.hist_list,
                 text="暂无文章。选择有效凭证后点击拉取。",
                 text_color=COLORS["muted"],
-                font=ctk.CTkFont(family="Microsoft YaHei UI", size=13),
+                font=ctk.CTkFont(family=UI_FONT, size=13),
             ).grid(row=0, column=0, pady=40)
             return
         for i, art in enumerate(self._history_articles):
@@ -2411,7 +2436,7 @@ class CertificateApp(ctk.CTk):
             ctk.CTkLabel(
                 card,
                 text=title,
-                font=ctk.CTkFont(family="Microsoft YaHei UI", size=14, weight="bold"),
+                font=ctk.CTkFont(family=UI_FONT, size=14, weight="bold"),
                 text_color=COLORS["text"],
                 anchor="w",
                 justify="left",
@@ -2422,7 +2447,7 @@ class CertificateApp(ctk.CTk):
             ctk.CTkLabel(
                 card,
                 text=meta or link[:72],
-                font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
+                font=ctk.CTkFont(family=UI_FONT, size=12),
                 text_color=COLORS["muted"],
                 anchor="w",
                 justify="left",
@@ -2465,8 +2490,8 @@ class CertificateApp(ctk.CTk):
                 button_color=COLORS["border"],
                 button_hover_color="#3a4a5e",
                 text_color=COLORS["text"],
-                font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
-                dropdown_font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
+                font=ctk.CTkFont(family=UI_FONT, size=12),
+                dropdown_font=ctk.CTkFont(family=UI_FONT, size=12),
             )
             fmt_menu.set(self.article_fmt_menu.get() if hasattr(self, "article_fmt_menu") else "Markdown")
             fmt_menu.pack(side="left", padx=(0, 12))
@@ -2577,7 +2602,7 @@ class CertificateApp(ctk.CTk):
         ctk.CTkLabel(
             card,
             text="补录文章链接",
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=16, weight="bold"),
+            font=ctk.CTkFont(family=UI_FONT, size=16, weight="bold"),
             text_color=COLORS["text"],
             anchor="w",
         ).grid(row=0, column=0, sticky="ew", padx=18, pady=(16, 4))
@@ -2585,7 +2610,7 @@ class CertificateApp(ctk.CTk):
         ctk.CTkLabel(
             card,
             text="粘贴公众号文章链接，将合并进当前列表。",
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=12),
+            font=ctk.CTkFont(family=UI_FONT, size=12),
             text_color=COLORS["muted"],
             anchor="w",
             justify="left",
@@ -2600,7 +2625,7 @@ class CertificateApp(ctk.CTk):
             fg_color=COLORS["card"],
             text_color=COLORS["text"],
             placeholder_text="https://mp.weixin.qq.com/s/…",
-            font=ctk.CTkFont(family="Consolas", size=13),
+            font=ctk.CTkFont(family=MONO_FONT, size=13),
         )
         entry.grid(row=2, column=0, sticky="ew", padx=18, pady=(0, 8))
         entry.focus_set()
@@ -2608,7 +2633,7 @@ class CertificateApp(ctk.CTk):
         err_lbl = ctk.CTkLabel(
             card,
             text="",
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=11),
+            font=ctk.CTkFont(family=UI_FONT, size=11),
             text_color=COLORS["danger"],
             anchor="w",
         )
@@ -2643,7 +2668,7 @@ class CertificateApp(ctk.CTk):
             fg_color=COLORS["border"],
             hover_color="#3a4a5e",
             text_color=COLORS["text"],
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=13),
+            font=ctk.CTkFont(family=UI_FONT, size=13),
             command=close_cancel,
         ).pack(side="left", padx=(0, 8))
 
@@ -2656,7 +2681,7 @@ class CertificateApp(ctk.CTk):
             fg_color=COLORS["accent"],
             hover_color=COLORS["accent_hover"],
             text_color="#052e16",
-            font=ctk.CTkFont(family="Microsoft YaHei UI", size=13, weight="bold"),
+            font=ctk.CTkFont(family=UI_FONT, size=13, weight="bold"),
             command=confirm,
         ).pack(side="left")
 
