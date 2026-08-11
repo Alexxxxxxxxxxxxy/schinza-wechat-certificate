@@ -75,8 +75,8 @@
 ## 运行环境
 
 - **Windows** 10 / 11（x64）
-- **macOS** 11.0+（打包产物为 **Apple Silicon (arm64)** 单架构；Intel Mac 可用源码运行）
-- 微信**桌面版**（用于凭证捕获，Windows / macOS 均已实测）
+- **macOS** 12.0+（Monterey 及以上——微信 Mac 版要求 macOS 12+；程序自身二进制仅需 11.0 (arm64) / 10.13 (x64)）
+- 微信**桌面版**（用于凭证捕获，Windows / macOS 均已实测；微信为 universal2 双架构安装包）
 - Python **3.11+**（开发 / 打包）
 - Windows 打包时需要 Python/conda 环境中的 OpenSSL DLL（`libssl` / `libcrypto`）；macOS 打包不需要额外 DLL
 
@@ -188,9 +188,9 @@ dist/Schinza.app
 
 ### macOS 系统要求（.app / .dmg 产物）
 
-- **Apple Silicon Mac**（M1 及更新芯片）— 构建产物为 arm64 单架构
-- **macOS 11.0 (Big Sur)** 或更高版本（已实测：内置全部二进制的最低版本要求均为 11.0）
-- 已安装**微信 Mac 版**（用于凭证捕获）
+- **Apple Silicon Mac**（M1 及更新，用 arm64 版）或 **Intel Mac**（用 x64 版）
+- **macOS 12.0 (Monterey)** 或更高版本——微信 Mac 4.x 要求 macOS 12+；程序自身二进制仅需 11.0 (arm64) / 10.13 (x64)
+- 已安装**微信 Mac 版**（用于凭证捕获；微信为 universal2 双架构，两种芯片均可运行）
 - 需要**管理员权限**的账号（安装信任根证书、设置系统代理时会弹出密码框）
 - 建议 300MB 磁盘空间、2GB 以上可用内存
 

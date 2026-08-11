@@ -75,7 +75,7 @@ Sidebar navigation (dark slate + green accent):
 ## Requirements
 
 - **Windows** 10 / 11 (x64)
-- **macOS** 11.0+ — the built bundle is **Apple Silicon (arm64)** only (Intel Macs can run from source)
+- **macOS** 12.0+ (Monterey or later — WeChat Mac requires macOS 12+; the bundle's own binaries need only 11.0 arm64 / 10.13 x64)
 - WeChat **Desktop** (for credential capture; verified on both Windows & macOS)
 - Python **3.11+** (development / build)
 - For Windows packaging: OpenSSL DLLs from your Python/conda env (`libssl` / `libcrypto`); macOS packaging needs no extra DLLs
@@ -192,9 +192,9 @@ The script creates a `.venv-mac` virtualenv → copies the CA from `~/.mitmproxy
 
 ### System requirements (macOS bundle)
 
-- **Apple Silicon Mac** (M1 or later) — the bundle is arm64-only
-- **macOS 11.0 (Big Sur)** or later (verified: every bundled binary requires minos 11.0)
-- **WeChat Mac** desktop app installed (required for credential capture)
+- **Apple Silicon Mac** (M1 or later) for the arm64 bundle, or **Intel Mac** for the x64 bundle
+- **macOS 12.0 (Monterey)** or later — WeChat Mac 4.x requires macOS 12+; the bundle's own binaries require only minos 11.0 (arm64) / 10.13 (x64)
+- **WeChat Mac** desktop app installed (required for credential capture; WeChat ships a universal2 build for both architectures)
 - An **administrator account** — installing the trust root and setting the system proxy prompt for the login password
 - ~300 MB free disk space; 2 GB+ free memory recommended
 
