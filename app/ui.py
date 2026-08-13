@@ -24,6 +24,7 @@ MONO_FONT = "Menlo" if sys.platform == "darwin" else "Consolas"
 
 from app.article_reader import (
     ARTICLE_EXPORT_FORMATS,
+    fetch_biz_from_url,
     ARTICLE_EXPORT_LABELS,
     batch_export_articles,
     extension_for_article_format,
@@ -44,7 +45,6 @@ from app.credentials import (
     credentials_to_json,
     extract_credentials_from_url,
     normalize_credentials,
-    try_parse_credentials,
 )
 from app.history_account_select import pick_label_for_account_id, resolve_account_id
 from app.history_client import describe_exception, fetch_history_days
@@ -311,6 +311,9 @@ class CertificateApp(ctk.CTk):
         self._sync_ui_queue: queue.Queue[tuple[str, str | None] | tuple[None, None]] = (
             queue.Queue()
         )
+        self._batch_import_queue: queue.Queue[
+            tuple[list[BatchRow], dict[str, str], int, int]
+        ] = queue.Queue()
 
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("dark-blue")
@@ -710,17 +713,6 @@ class CertificateApp(ctk.CTk):
             wraplength=700,
         )
         self.status_lbl.pack(side="left", fill="x", expand=True)
-
-        ctk.CTkButton(
-            paste_row,
-            text="粘贴凭证",
-            width=96,
-            height=30,
-            corner_radius=8,
-            fg_color=COLORS["border"],
-            hover_color="#3a4a5e",
-            command=self.paste_credentials_manual,
-        ).pack(side="right", padx=(12, 0))
 
         ctk.CTkButton(
             paste_row,
@@ -1719,7 +1711,10 @@ class CertificateApp(ctk.CTk):
         )
 
     def batch_import_accounts(self) -> None:
-        """批量导入 CSV/TXT（公众号,文章链接），逐个添加并抓包。"""
+        """批量导入 CSV/TXT（公众号,文章链接），逐个添加并抓包。
+
+        短链（无 __biz）会先在后台抓文章页自动提取 __biz，保证抓包能匹配。
+        """
         path = filedialog.askopenfilename(
             title="选择批量导入文件（CSV/TXT）",
             filetypes=[
@@ -1762,21 +1757,56 @@ class CertificateApp(ctk.CTk):
             self.set_status("批量导入失败：所有行都与已有公众号重复", ok=False)
             return
 
+        skipped = len(errors) + len(dup_lines)
+        need_biz = [row for row in to_add if "__biz=" not in row.link]
+
+        def worker() -> None:
+            biz_map: dict[str, str] = {}
+            for row in need_biz:
+                biz = fetch_biz_from_url(row.link)
+                if biz:
+                    biz_map[row.link] = biz
+            self._batch_import_queue.put((to_add, biz_map, len(need_biz), skipped))
+
+        if need_biz:
+            self.set_status(
+                f"正在识别 {len(need_biz)} 个公众号的 __biz（需要几秒）…", ok=True
+            )
+            threading.Thread(target=worker, name="schinza-batch-biz", daemon=True).start()
+        else:
+            self._finish_batch_import(to_add, {}, 0, skipped)
+
+    def _finish_batch_import(
+        self,
+        to_add: list[BatchRow],
+        biz_map: dict[str, str],
+        need_n: int,
+        skipped_n: int,
+    ) -> None:
         if not self._ensure_proxy_for_capture():
             return
+        missing = 0
         for row in to_add:
-            self.store.add_pending(name=row.name, article_url=row.link)
+            r = self.store.add_pending(name=row.name, article_url=row.link)
+            biz = biz_map.get(row.link)
+            if biz:
+                self.store.set_biz(str(r["id"]), biz)
+            elif "__biz=" not in row.link:
+                missing += 1
         self._pending_capture_id = None
         self.watcher.enable()
         self.mitm.clear_inbox()
-        skipped = len(errors) + len(dup_lines)
         base = (
             f"已批量添加 {len(to_add)} 个公众号并开始抓包。"
             "请依次在微信桌面打开各公众号任意一篇文章，等待自动入库。"
         )
-        if skipped:
-            base += f"（跳过 {skipped} 行：无效/重复）"
-        self.set_status(base, ok=True)
+        if need_n:
+            base = f"已识别 __biz {need_n - missing}/{need_n}；" + base
+        if missing:
+            base += f"（{missing} 个链接无法识别 __biz，可能无法自动匹配）"
+        if skipped_n:
+            base += f"（跳过 {skipped_n} 行：无效/重复）"
+        self.set_status(base, ok=missing == 0)
 
     def _clear_bulk_renew(self) -> None:
         self._bulk_renew_remaining = set()
@@ -1886,22 +1916,6 @@ class CertificateApp(ctk.CTk):
             self.set_status(f"已复制「{row.get('name')}」凭证 JSON", ok=True)
         except Exception as exc:
             self.set_status(f"复制失败: {exc}", ok=False)
-
-    def paste_credentials_manual(self) -> None:
-        try:
-            text = pyperclip.paste() or ""
-        except Exception:
-            text = ""
-        cred = try_parse_credentials(text)
-        if not cred:
-            self.set_status(
-                "粘贴失败：剪贴板里没有凭证。请用「添加并抓包」后在微信打开文章自动入库；"
-                "「粘贴凭证」仅用于已复制的含 __biz/uin/key 的链接或 JSON。",
-                ok=False,
-            )
-            return
-        if self._apply_credentials(cred):
-            self.mitm.ack_inbox()
 
     def _on_clipboard_credentials(self, cred: dict[str, str]) -> None:
         self.after(0, lambda: self._apply_credentials(cred))
@@ -3164,6 +3178,12 @@ class CertificateApp(ctk.CTk):
     def _tick(self) -> None:
         self.store.mark_expired_if_needed()
         self._pump_sync_queue()
+        while True:
+            try:
+                bi_item = self._batch_import_queue.get_nowait()
+            except queue.Empty:
+                break
+            self._finish_batch_import(*bi_item)
         creds = self.mitm.read_new_credentials(consume=False)
         if creds and (self._bulk_renew_active() or self._capture_target_id()):
             applied = False

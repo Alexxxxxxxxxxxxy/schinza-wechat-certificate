@@ -26,3 +26,7 @@ mitmproxy-ca-cert.cer
 
 # Standalone repo backup (removed nested .git) - never track
 .git.standalone-backup/
+
+# local test temp dirs
+.pytest_tmp*/
+.tmp/

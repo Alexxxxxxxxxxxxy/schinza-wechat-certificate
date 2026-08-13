@@ -843,3 +843,34 @@ def fetch_and_parse_article(
 ) -> dict[str, Any]:
     html_text = fetch_article_html(url, cred=cred, timeout=timeout)
     return parse_wechat_article_html(html_text, source_url=url)
+
+
+_BIZ_URL_RE = re.compile(r"__biz=([A-Za-z0-9_%\-]+)")
+_BIZ_URL_RE = re.compile(r"__biz=([A-Za-z0-9_%\-]+)")
+_BIZ_SCRIPT_RE = re.compile(r'var\s+biz\s*=\s*["\']([^"\']+)["\']')
+_BIZ_JSON_RE = re.compile(r'"__biz"\s*:\s*"([^"]+)"')
+
+def extract_biz_from_html(html: str) -> str:
+    """从公众号文章 HTML 提取 __biz（og:url / var biz / JSON 字段）。
+
+    短链（/s/xxx 无查询参数）URL 里没有 __biz，但文章页 HTML 里有。
+    """
+    if not html:
+        return ""
+    for pat in (_BIZ_URL_RE, _BIZ_SCRIPT_RE, _BIZ_JSON_RE):
+        m = pat.search(html)
+        if m:
+            try:
+                return unquote(m.group(1))
+            except Exception:
+                return m.group(1)
+    return ""
+
+
+def fetch_biz_from_url(url: str, *, timeout: float = 15.0, session: Any | None = None) -> str:
+    """直接抓取公开文章页并提取 __biz；失败返回空串（无需凭证）。"""
+    try:
+        html = fetch_article_html(url, timeout=timeout, session=session)
+        return extract_biz_from_html(html)
+    except Exception:
+        return ""

@@ -117,6 +117,23 @@ class AccountStore:
         self._emit()
         return out
 
+    def set_biz(self, account_id: str, biz: str) -> None:
+        """给账号写入已知的 __biz（如从文章页自动提取的），便于抓包匹配。"""
+        biz = (biz or "").strip()
+        if not biz:
+            return
+        with self._lock:
+            for row in self._accounts:
+                if row.get("id") == account_id:
+                    row["biz"] = biz
+                    cred = row.get("credentials") or {}
+                    if isinstance(cred, dict):
+                        cred["__biz"] = biz
+                        row["credentials"] = cred
+                    self.save()
+                    break
+        self._emit()
+
     def mark_expired_if_needed(self) -> bool:
         changed = False
         now = _now()
