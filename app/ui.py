@@ -9,7 +9,7 @@ import sys
 import threading
 import time
 import webbrowser
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable
 from tkinter import filedialog, messagebox
@@ -63,6 +63,8 @@ from app.history_ranges import (
     DEFAULT_HISTORY_DAYS,
     HISTORY_RANGE_LABELS,
     MAX_CUSTOM_DAYS,
+    RANGE_LABEL,
+    date_range_text,
     days_for_label,
     label_for_days,
     range_text,
@@ -107,6 +109,14 @@ def _matches_name_filter(name: str, query: str) -> bool:
     if not q:
         return True
     return q in (name or "").lower()
+
+
+def _iso_date_to_ts(iso: str, *, end_of_day: bool = False) -> int:
+    """'YYYY-MM-DD' → 时间戳；end_of_day=True 取当天 23:59:59。"""
+    d = datetime.strptime(iso.strip(), "%Y-%m-%d")
+    if end_of_day:
+        d = d.replace(hour=23, minute=59, second=59)
+    return int(d.timestamp())
 
 
 def _fmt_remain(seconds: int) -> str:
@@ -279,6 +289,7 @@ class CertificateApp(ctk.CTk):
         self._tab = "credentials"
         self._history_days: int | None = DEFAULT_HISTORY_DAYS
         self._history_custom_days: int | None = None
+        self._history_range_iso: tuple[str, str] | None = None
         self._history_articles: list[dict[str, Any]] = []
         self._history_account_name: str = ""
         self._history_cred: dict[str, Any] = {}
@@ -2093,12 +2104,16 @@ class CertificateApp(ctk.CTk):
         )
 
     def _fetch_btn_label(self) -> str:
+        if self._history_range_iso:
+            return f"拉取 {self._history_range_iso[0]}~{self._history_range_iso[1]}"
         if self._history_days is None:
             return "拉取全部历史"
         return f"拉取近{self._history_days}天"
 
     def _history_range_label(self) -> str:
         """当前选择对应的下拉框文案（自定义值显示为「自定义 N 天」）。"""
+        if self._history_range_iso:
+            return date_range_text(*self._history_range_iso)
         days = self._history_days
         if days is None:
             return ALL_LABEL
@@ -2110,6 +2125,10 @@ class CertificateApp(ctk.CTk):
         if value == CUSTOM_LABEL:
             self._prompt_custom_days()
             return
+        if value == RANGE_LABEL:
+            self._prompt_date_range()
+            return
+        self._history_range_iso = None
         self._history_days = days_for_label(value)
         self.hist_range_menu.set(self._history_range_label())
         if not self._history_fetching:
@@ -2249,6 +2268,194 @@ class CertificateApp(ctk.CTk):
             return
         self._history_days = n
         self._history_custom_days = n
+        self._history_range_iso = None
+        self.hist_range_menu.set(self._history_range_label())
+        if not self._history_fetching:
+            self.hist_fetch_btn.configure(text=self._fetch_btn_label())
+
+    def _prompt_date_range(self) -> None:
+        """Themed modal: 自定义日期区间——起止日期各拆成 年/月/日 三个输入框。"""
+        result: dict[str, tuple[str, str] | None] = {"range": None}
+
+        dlg = ctk.CTkToplevel(self)
+        dlg.title("自定义日期范围")
+        dlg.configure(fg_color=COLORS["bg"])
+        dlg.geometry("520x380")
+        dlg.minsize(500, 360)
+        dlg.transient(self)
+        dlg.grab_set()
+        dlg.resizable(False, False)
+        try:
+            self.update_idletasks()
+            x = self.winfo_rootx() + (self.winfo_width() - 520) // 2
+            y = self.winfo_rooty() + (self.winfo_height() - 380) // 2
+            dlg.geometry(f"+{max(0, x)}+{max(0, y)}")
+        except Exception:
+            pass
+
+        card = ctk.CTkFrame(
+            dlg,
+            fg_color=COLORS["panel"],
+            corner_radius=16,
+            border_width=1,
+            border_color=COLORS["border"],
+        )
+        card.pack(fill="both", expand=True, padx=16, pady=16)
+        card.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            card,
+            text="按日期区间拉取",
+            font=ctk.CTkFont(family=UI_FONT, size=16, weight="bold"),
+            text_color=COLORS["text"],
+            anchor="w",
+        ).grid(row=0, column=0, sticky="ew", padx=18, pady=(16, 4))
+
+        ctk.CTkLabel(
+            card,
+            text="分别填写起止日期的 年 / 月 / 日（含当天）",
+            font=ctk.CTkFont(family=UI_FONT, size=12),
+            text_color=COLORS["muted"],
+            anchor="w",
+            justify="left",
+            wraplength=440,
+        ).grid(row=1, column=0, sticky="ew", padx=18, pady=(0, 10))
+
+        today = datetime.now()
+        default_start = today - timedelta(days=30)
+        default_end = today
+        if self._history_range_iso:
+            try:
+                default_start = datetime.strptime(self._history_range_iso[0], "%Y-%m-%d")
+                default_end = datetime.strptime(self._history_range_iso[1], "%Y-%m-%d")
+            except ValueError:
+                pass
+
+        def date_row(row: int, label: str, default: datetime) -> tuple[object, object, object]:
+            ctk.CTkLabel(
+                card,
+                text=label,
+                font=ctk.CTkFont(family=UI_FONT, size=12),
+                text_color=COLORS["muted"],
+                anchor="w",
+            ).grid(row=row, column=0, sticky="w", padx=18, pady=(4, 2))
+            row_frame = ctk.CTkFrame(card, fg_color="transparent")
+            row_frame.grid(row=row + 1, column=0, sticky="ew", padx=18, pady=(0, 6))
+
+            def make(width: int, value: str, placeholder: str) -> object:
+                e = ctk.CTkEntry(
+                    row_frame,
+                    width=width,
+                    height=36,
+                    corner_radius=10,
+                    border_color=COLORS["border"],
+                    fg_color=COLORS["card"],
+                    text_color=COLORS["text"],
+                    font=ctk.CTkFont(family=MONO_FONT, size=13),
+                    placeholder_text=placeholder,
+                )
+                e.insert(0, value)
+                return e
+
+            y = make(96, str(default.year), "2025")
+            m = make(64, str(default.month), "6")
+            d = make(64, str(default.day), "30")
+
+            for w in (y, m, d):
+                w.pack(side="left", padx=(0, 4))
+            for label_text, pad in (("年", 8), ("月", 8), ("日", 0)):
+                ctk.CTkLabel(
+                    row_frame,
+                    text=label_text,
+                    font=ctk.CTkFont(family=UI_FONT, size=12),
+                    text_color=COLORS["muted"],
+                ).pack(side="left", padx=(0, pad))
+            return y, m, d
+
+        sy, sm, sd = date_row(2, "开始日期", default_start)
+        ey, em, ed = date_row(5, "结束日期", default_end)
+
+        err_lbl = ctk.CTkLabel(
+            card,
+            text="",
+            font=ctk.CTkFont(family=UI_FONT, size=11),
+            text_color=COLORS["danger"],
+            anchor="w",
+        )
+        err_lbl.grid(row=8, column=0, sticky="ew", padx=18, pady=(0, 4))
+
+        btns = ctk.CTkFrame(card, fg_color="transparent")
+        btns.grid(row=9, column=0, sticky="e", padx=18, pady=(8, 16))
+
+        def close_cancel() -> None:
+            result["range"] = None
+            dlg.grab_release()
+            dlg.destroy()
+
+        def confirm() -> None:
+            try:
+                start_d = datetime(
+                    int((sy.get() or "").strip()),
+                    int((sm.get() or "").strip()),
+                    int((sd.get() or "").strip()),
+                )
+                end_d = datetime(
+                    int((ey.get() or "").strip()),
+                    int((em.get() or "").strip()),
+                    int((ed.get() or "").strip()),
+                )
+            except ValueError:
+                err_lbl.configure(text="请填写有效的年月日（如 2025 / 6 / 30）")
+                return
+            if start_d > end_d:
+                err_lbl.configure(text="开始日期不能晚于结束日期")
+                return
+            result["range"] = (
+                start_d.strftime("%Y-%m-%d"),
+                end_d.strftime("%Y-%m-%d"),
+            )
+            dlg.grab_release()
+            dlg.destroy()
+
+        ctk.CTkButton(
+            btns,
+            text="取消",
+            width=88,
+            height=34,
+            corner_radius=10,
+            fg_color=COLORS["border"],
+            hover_color="#3a4a5e",
+            text_color=COLORS["text"],
+            font=ctk.CTkFont(family=UI_FONT, size=13),
+            command=close_cancel,
+        ).pack(side="left", padx=(0, 8))
+
+        ctk.CTkButton(
+            btns,
+            text="确定",
+            width=96,
+            height=34,
+            corner_radius=10,
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            text_color="#052e16",
+            font=ctk.CTkFont(family=UI_FONT, size=13, weight="bold"),
+            command=confirm,
+        ).pack(side="left")
+
+        dlg.protocol("WM_DELETE_WINDOW", close_cancel)
+        for w in (sy, sm, sd, ey, em, ed):
+            w.bind("<Return>", lambda _e: confirm())
+            w.bind("<Escape>", lambda _e: close_cancel())
+
+        self.wait_window(dlg)
+        rng = result["range"]
+        if rng is None:
+            # 取消：恢复原选择
+            self.hist_range_menu.set(self._history_range_label())
+            return
+        self._history_range_iso = rng
+        self._history_days = None
         self.hist_range_menu.set(self._history_range_label())
         if not self._history_fetching:
             self.hist_fetch_btn.configure(text=self._fetch_btn_label())
@@ -2303,6 +2510,11 @@ class CertificateApp(ctk.CTk):
                 self.after(0, lambda m=msg: self.set_hist_status(m, ok=True))
 
             try:
+                start_ts = None
+                end_ts = None
+                if self._history_range_iso:
+                    start_ts = _iso_date_to_ts(self._history_range_iso[0])
+                    end_ts = _iso_date_to_ts(self._history_range_iso[1], end_of_day=True)
                 result = fetch_history_days(
                     cred,
                     days=self._history_days,
@@ -2310,6 +2522,8 @@ class CertificateApp(ctk.CTk):
                     on_progress=progress,
                     sightings=sightings,
                     should_cancel=lambda: self._history_cancel,
+                    start_ts=start_ts,
+                    end_ts=end_ts,
                 )
             except Exception as exc:  # noqa: BLE001
                 result = {"ok": False, "error": describe_exception(exc), "articles": []}
@@ -2343,7 +2557,12 @@ class CertificateApp(ctk.CTk):
             return
         pages = result.get("pages") or 0
         warn = str(result.get("warning") or "").strip()
-        msg = f"「{account_name}」{range_text(self._history_days)}共 {len(articles)} 篇（请求 {pages} 页）"
+        scope = (
+            date_range_text(*self._history_range_iso)
+            if self._history_range_iso
+            else range_text(self._history_days)
+        )
+        msg = f"「{account_name}」{scope}共 {len(articles)} 篇（请求 {pages} 页）"
         if warn:
             msg = f"{msg} · {warn}"
         self.set_hist_status(msg, ok=True)
@@ -2918,9 +3137,26 @@ class CertificateApp(ctk.CTk):
         ok_n = int(result.get("ok") or 0)
         fail_n = int(result.get("failed") or 0)
         out = result.get("out_dir") or ""
+        if fail_n > 0:
+            errors = list(result.get("errors") or [])
+            report = ""
+            try:
+                report_path = Path(out) / "导出失败清单.txt"
+                report_path.write_text(
+                    "\n".join(f"{i + 1}. {e}" for i, e in enumerate(errors)),
+                    encoding="utf-8",
+                )
+                report = f"；失败明细已写入 {report_path.name}"
+            except Exception:
+                report = ""
+            self.set_hist_status(
+                f"批量导出完成（{label}）：成功 {ok_n} · 失败 {fail_n} → {out}{report}",
+                ok=False,
+            )
+            return
         self.set_hist_status(
             f"批量导出完成（{label}）：成功 {ok_n} · 失败 {fail_n} → {out}",
-            ok=fail_n == 0,
+            ok=True,
         )
 
     # ── tick / lifecycle ──────────────────────────────────────────────

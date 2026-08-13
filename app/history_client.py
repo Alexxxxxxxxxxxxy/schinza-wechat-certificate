@@ -534,6 +534,8 @@ def fetch_history_days(
     on_progress: ProgressCb | None = None,
     sightings: list[dict[str, Any]] | None = None,
     should_cancel: Callable[[], bool] | None = None,
+    start_ts: int | None = None,
+    end_ts: int | None = None,
 ) -> dict[str, Any]:
     """Paginate getmsg and keep articles with publish_ts within the last ``days``.
 
@@ -552,9 +554,25 @@ def fetch_history_days(
         return {"ok": False, "error": err, "articles": [], "pages": 0}
 
     cutoff: int | None = None
-    if days is not None:
+    upper_ts: int | None = None
+    range_mode = start_ts is not None or end_ts is not None
+    if range_mode:
+        # 日期区间模式：start_ts ~ end_ts（含当日）
+        days = None
+        cutoff = int(start_ts) if start_ts is not None else None
+        upper_ts = int(end_ts) if end_ts is not None else None
+    elif days is not None:
         days = max(1, int(days))
         cutoff = int(time.time()) - days * 86400
+    if range_mode:
+        _parts = []
+        if cutoff is not None:
+            _parts.append(datetime.fromtimestamp(cutoff).strftime("%Y-%m-%d"))
+        if upper_ts is not None:
+            _parts.append(datetime.fromtimestamp(upper_ts).strftime("%Y-%m-%d"))
+        scope = " 至 ".join(_parts) if _parts else "全部历史"
+    else:
+        scope = "全部历史" if days is None else f"近 {days} 天"
     articles: list[dict[str, Any]] = []
     pages = 0
     offset = 0
@@ -633,6 +651,8 @@ def fetch_history_days(
             ts = int(a.get("publish_ts") or 0)
             if cutoff is not None and ts and ts < cutoff:
                 continue
+            if upper_ts is not None and ts and ts > upper_ts:
+                continue
             row = dict(a)
             row.setdefault("source", "getmsg")
             articles.append(row)
@@ -669,10 +689,11 @@ def fetch_history_days(
         articles, sightings or [], cutoff_ts=cutoff, biz=biz
     )
     merged_extra = max(0, len(deduped) - base_n)
+    if upper_ts is not None:
+        deduped = [a for a in deduped if not (int(a.get("publish_ts") or 0) > upper_ts)]
 
     warn = ""
     if hit_page_cap and last_can_continue:
-        scope = range_text(days) + ("" if days is None else "内")
         warn = (
             f"已达翻页上限 {page_limit} 页，{scope}可能仍有文章未拉完，请再点一次拉取续翻。"
         )
@@ -681,7 +702,7 @@ def fetch_history_days(
         warn = f"{warn} · {extra}" if warn else extra
 
     if on_progress:
-        msg = f"完成：{range_text(days)}共 {len(deduped)} 篇（请求 {pages} 页）"
+        msg = f"完成：{scope}共 {len(deduped)} 篇（请求 {pages} 页）"
         if warn:
             msg += f" · {warn}"
         on_progress(msg)
@@ -694,6 +715,8 @@ def fetch_history_days(
         "pages": pages,
         "days": days,
         "cutoff_ts": cutoff,
+        "start_ts": cutoff if range_mode else None,
+        "end_ts": upper_ts if range_mode else None,
         "hit_page_cap": hit_page_cap,
         "merged_sightings": merged_extra,
         "__biz": biz,

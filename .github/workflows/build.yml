@@ -3,7 +3,8 @@ name: Build Schinza (Windows + macOS)
 on:
   workflow_dispatch:          # 手动触发
   push:
-    tags: ["v*"]              # 打 v 标签自动触发
+    branches: ["main"]        # push 到 main 自动重建（只出产物，不发 Release）
+    tags: ["v*"]              # 打 v 标签自动重建 + 自动发 Release
 
 jobs:
   build-mac:

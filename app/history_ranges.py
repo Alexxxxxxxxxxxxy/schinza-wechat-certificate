@@ -12,9 +12,10 @@ HISTORY_RANGES: list[tuple[str, int | None]] = [
 
 ALL_LABEL = "全部"
 CUSTOM_LABEL = "自定义天数"
+RANGE_LABEL = "日期范围"
 
-# 预设标签 + 交互式「自定义天数」入口（实际天数由 UI 弹窗输入）。
-HISTORY_RANGE_LABELS = [label for label, _days in HISTORY_RANGES] + [CUSTOM_LABEL]
+# 预设标签 + 交互式「自定义天数 / 日期范围」入口（实际值由 UI 弹窗输入）。
+HISTORY_RANGE_LABELS = [label for label, _days in HISTORY_RANGES] + [CUSTOM_LABEL, RANGE_LABEL]
 
 DEFAULT_HISTORY_DAYS = 7
 CUSTOM_DAYS_DEFAULT = 30
@@ -47,3 +48,8 @@ def label_for_days(days: int | None) -> str:
 def range_text(days: int | None) -> str:
     """用户可见的范围文案：'近 7 天' 或 '全部历史'。"""
     return "全部历史" if days is None else f"近 {days} 天"
+
+
+def date_range_text(start_iso: str, end_iso: str) -> str:
+    """日期区间文案：'2025-06-30 至 2025-07-30'。"""
+    return f"{start_iso} 至 {end_iso}"

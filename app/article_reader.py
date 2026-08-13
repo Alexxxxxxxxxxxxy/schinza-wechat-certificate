@@ -11,6 +11,7 @@ import html
 import io
 import json
 import re
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
@@ -677,6 +678,28 @@ def safe_export_filename(title: str, *, ext: str, index: int = 0) -> str:
     return f"{safe}.{ext}"
 
 
+def _fetch_with_retry(
+    fetch: Callable[..., dict[str, Any]],
+    link: str,
+    *,
+    cred: dict[str, Any] | None,
+    retries: int = 2,
+    retry_delay_s: float = 1.0,
+) -> dict[str, Any]:
+    """Fetch article with transient-network retries (timeout / connection)."""
+    last: Exception | None = None
+    for attempt in range(retries + 1):
+        try:
+            return fetch(link, cred=cred)
+        except (requests.Timeout, requests.ConnectionError) as exc:
+            last = exc
+            if attempt < retries:
+                time.sleep(retry_delay_s * (attempt + 1))
+    if last is None:  # pragma: no cover - unreachable
+        last = requests.RequestException("请求失败")
+    raise last
+
+
 def batch_export_articles(
     articles: list[dict[str, Any]],
     *,
@@ -685,6 +708,7 @@ def batch_export_articles(
     fetch_article: Callable[..., dict[str, Any]] | None = None,
     cred: dict[str, Any] | None = None,
     on_progress: Callable[[str], None] | None = None,
+    sleep_s: float = 0.3,
 ) -> dict[str, Any]:
     """Fetch each article body and write into ``out_dir``.
 
@@ -710,7 +734,7 @@ def batch_export_articles(
             errors.append(f"{title}: 无链接")
             continue
         try:
-            parsed = fetch(link, cred=cred)
+            parsed = _fetch_with_retry(fetch, link, cred=cred)
             if not parsed.get("publish_at") and row.get("publish_at"):
                 parsed["publish_at"] = row.get("publish_at")
             if not parsed.get("publish_ts") and row.get("publish_ts"):
@@ -724,6 +748,8 @@ def batch_export_articles(
         except Exception as exc:  # noqa: BLE001
             failed_n += 1
             errors.append(f"{title}: {describe_exception(exc)}")
+        if sleep_s > 0 and i < len(articles):
+            time.sleep(sleep_s)
 
     return {
         "ok": ok_n,
@@ -763,6 +789,8 @@ def fetch_article_html(
     cred: dict[str, Any] | None = None,
     timeout: float = 25.0,
     session: requests.Session | None = None,
+    retries: int = 2,
+    retry_delay_s: float = 1.0,
 ) -> str:
     """Fetch article page HTML (direct to WeChat, bypass system proxy)."""
     url = (url or "").strip()
@@ -785,10 +813,26 @@ def fetch_article_html(
 
     sess = session or requests.Session()
     sess.trust_env = False
-    resp = sess.get(url, headers=headers, cookies=cookies, timeout=timeout)
-    resp.raise_for_status()
-    resp.encoding = resp.apparent_encoding or resp.encoding or "utf-8"
-    return resp.text
+    last_exc: Exception | None = None
+    for attempt in range(retries + 1):
+        try:
+            resp = sess.get(url, headers=headers, cookies=cookies, timeout=timeout)
+            resp.raise_for_status()
+            resp.encoding = resp.apparent_encoding or resp.encoding or "utf-8"
+            return resp.text
+        except (requests.Timeout, requests.ConnectionError) as exc:
+            last_exc = exc
+            if attempt < retries:
+                time.sleep(retry_delay_s * (attempt + 1))
+        except requests.exceptions.HTTPError as exc:
+            status = exc.response.status_code if exc.response is not None else 0
+            if status in (429, 500, 502, 503, 504) and attempt < retries:
+                time.sleep(retry_delay_s * (attempt + 1))
+                continue
+            raise
+    if last_exc is None:  # pragma: no cover - unreachable
+        last_exc = requests.RequestException("请求失败")
+    raise last_exc
 
 
 def fetch_and_parse_article(

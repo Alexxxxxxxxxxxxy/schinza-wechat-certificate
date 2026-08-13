@@ -54,7 +54,7 @@ Source repository: [Alexxxxxxxxxxxxy/schinza-wechat-certificate](https://github.
 | Module | What it does |
 |--------|----------------|
 | **Credential Manager** | Install bundled MITM CA, start local proxy, capture `__biz` / `uin` / `key` / `pass_ticket` from WeChat Desktop; **30‑minute TTL** with renew / copy JSON / **search by name** |
-| **History Articles** | Fetch **7 / 30 / 90‑day / all / custom‑day** history; list export; per‑article or batch body export; optional **URL补录** |
+| **History Articles** | Fetch **7 / 30 / 90‑day / all / custom‑day / custom date‑range** history; list export; per‑article or batch body export; optional **URL补录** |
 | **List export** | JSON · CSV (Excel) · TSV · Markdown · plain links · title+link |
 | **Article export** | Per-article or **batch**: **HTML** · **Markdown** · **TXT** · **JSON** · **Word (.docx)** |
 | **Sync Server** | Import Schinza OA list CSV; match local valid credentials by name, then copy or batch upload (≤ 50/batch) to your own open API server |
