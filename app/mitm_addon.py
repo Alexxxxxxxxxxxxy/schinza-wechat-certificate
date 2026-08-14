@@ -398,9 +398,30 @@ class CredentialCapture:
             headers = None
         cookie = headers.get("Cookie", "") if headers is not None else ""
 
+        # Article URL sightings MUST be recorded even when we cannot attribute a
+        # __biz (short links /s/xxx carry no __biz). WeChat getmsg often omits
+        # standalone (发布) articles — sightings are what fill those gaps, so an
+        # early return here would cause 漏抓.
+        sighting = extract_article_sighting(url)
+        sighting_fp = (
+            str(sighting.get("identity") or sighting.get("link") or "")
+            if sighting
+            else ""
+        )
+        if sighting and sighting_fp and sighting_fp != self._last_sighting_fp:
+            self._last_sighting_fp = sighting_fp
+            _upsert_sighting(sighting)
+            print(
+                "[schinza-capture] article sighting",
+                {
+                    "title": (sighting.get("title") or "")[:20],
+                    "id": (sighting.get("identity") or "")[:40],
+                },
+            )
+
         # Attribute this request to a __biz (URL query, else Referer). Without
-        # attribution we CANNOT merge — multi-window renew would mix account A's
-        # key into account B.
+        # attribution we CANNOT merge creds — multi-window renew would mix
+        # account A's key into account B.
         biz = _effective_biz(url, headers)
         if not biz:
             return
@@ -410,22 +431,10 @@ class CredentialCapture:
         changed = _merge_from_url(url, bucket)
         changed = _merge_from_cookie(cookie, bucket) or changed
 
-        # Article URL sightings — fill getmsg gaps for same-day later pushes
-        sighting = extract_article_sighting(url)
-        if sighting:
-            fp = str(sighting.get("identity") or sighting.get("link") or "")
-            if fp and fp != self._last_sighting_fp:
-                if not sighting.get("__biz") and bucket.get("__biz"):
-                    sighting["__biz"] = bucket["__biz"]
-                _upsert_sighting(sighting)
-                self._last_sighting_fp = fp
-                print(
-                    "[schinza-capture] article sighting",
-                    {
-                        "title": (sighting.get("title") or "")[:20],
-                        "id": (sighting.get("identity") or "")[:40],
-                    },
-                )
+        # Enrich the sighting with the now-known __biz (short links lack it).
+        if sighting and not sighting.get("__biz") and bucket.get("__biz"):
+            sighting["__biz"] = bucket["__biz"]
+            _upsert_sighting(sighting)
 
         # Diagnostic: did the traffic reach us, and are creds complete?
         have = tuple(sorted(k for k in KEYS if bucket.get(k)))

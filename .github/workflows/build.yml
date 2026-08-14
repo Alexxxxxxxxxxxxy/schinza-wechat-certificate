@@ -83,10 +83,60 @@ jobs:
           name: Schinza-windows-x64
           path: Schinza-windows-x64.zip
 
+
+  build-mac-intel:
+    name: macOS (Intel x64)
+    runs-on: macos-14          # arm64 runner + Rosetta 交叉编译 x86_64
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install universal2 Python (arm64 + x86_64)
+        run: |
+          curl -fL -o py.pkg "https://www.python.org/ftp/python/3.11.9/python-3.11.9-macos11.pkg"
+          sudo installer -pkg py.pkg -target /
+
+      - name: Bootstrap x86_64 venv + CA
+        shell: bash
+        run: |
+          set -e
+          PY="/Library/Frameworks/Python.framework/Versions/3.11/bin/python3"
+          arch -x86_64 "$PY" -m venv .venv-x64
+          # python.org 安装包自带 SSL 证书问题：先装 certifi 再以其为 CA
+          arch -x86_64 .venv-x64/bin/python -m pip install --quiet             --trusted-host pypi.org --trusted-host files.pythonhosted.org certifi
+          export SSL_CERT_FILE="$(arch -x86_64 .venv-x64/bin/python -c 'import certifi; print(certifi.where())')"
+          arch -x86_64 .venv-x64/bin/python -m pip install --quiet -r requirements.txt
+          # 生成 mitmproxy CA（私钥不进仓库）
+          arch -x86_64 .venv-x64/bin/mitmdump -q -p 8080 & PID=$!
+          sleep 15
+          kill "$PID" 2>/dev/null || true
+          for f in mitmproxy-ca.pem mitmproxy-ca-cert.p12 mitmproxy-ca.p12 mitmproxy-ca-cert.cer; do
+            cp "$HOME/.mitmproxy/$f" ./ 2>/dev/null || true
+          done
+          ls -1 mitmproxy-ca* || true
+
+      - name: Build Intel .app (Schinza-mac.spec)
+        shell: bash
+        run: |
+          set -e
+          export SSL_CERT_FILE="$(arch -x86_64 .venv-x64/bin/python -c 'import certifi; print(certifi.where())')"
+          arch -x86_64 .venv-x64/bin/pyinstaller --noconfirm Schinza-mac.spec
+          mv dist/Schinza.app dist/Schinza-x64.app
+
+      - name: Package
+        shell: bash
+        run: |
+          set -e
+          (cd dist && zip -r ../Schinza-mac-x64.zip Schinza-x64.app)
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: Schinza-mac-x64
+          path: Schinza-mac-x64.zip
+
   release:
     name: Publish GitHub Release (tag only)
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build-mac, build-windows]
+    needs: [build-mac, build-mac-intel, build-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write

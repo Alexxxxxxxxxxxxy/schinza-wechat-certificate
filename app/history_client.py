@@ -7,9 +7,11 @@ from __future__ import annotations
 
 import html
 import json
+import os
 import re
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import parse_qs, unquote, urlencode, urlparse, urlunparse
 
@@ -59,6 +61,24 @@ def _network_error(exc: Exception) -> str:
     if isinstance(exc, requests.exceptions.SSLError):
         return base + "（SSL 错误，可能是证书或代理问题）"
     return base + "（网络错误，请检查网络/代理设置后重试）"
+
+
+def _getmsg_debug_path() -> Path:
+    raw = os.environ.get("SCHINZA_GETMSG_DEBUG") or ""
+    if raw:
+        return Path(raw)
+    return Path(__file__).resolve().parents[1] / "data" / "getmsg_debug.log"
+
+
+def _debug_log(line: str) -> None:
+    """Append a line to data/getmsg_debug.log (抓取诊断，供排查漏抓)。"""
+    try:
+        path = _getmsg_debug_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(time.strftime("%Y-%m-%dT%H:%M:%S") + " " + line + "\n")
+    except Exception:
+        pass
 
 
 def _clean_url(raw: str) -> str:
@@ -147,6 +167,13 @@ def _item_to_row(
     link = _link_from_item(item)
     # 头条偶发缺 link：只要有标题也保留，避免「同一天多图文只剩最后一篇」
     if not link and not title:
+        _debug_log(
+            "DROP item no-link-no-title "
+            + json.dumps(
+                {k: v for k, v in item.items() if k in ("title", "content_url", "url", "mid", "idx", "sn")},
+                ensure_ascii=False,
+            )
+        )
         return None
     if not title:
         title = "(无标题)"
@@ -226,7 +253,29 @@ def parse_general_msg_list(payload: dict[str, Any] | str) -> list[dict[str, Any]
         msg_id = str(comm.get("id") or "")
 
         app = msg.get("app_msg_ext_info")
-        if not isinstance(app, dict) or not app:
+        root_multi = msg.get("multi_app_msg_item_list")
+        has_root_multi = isinstance(root_multi, list) and bool(root_multi)
+        if (not isinstance(app, dict) or not app) and not has_root_multi:
+            # 有些 payload 把多图文子文章放在消息根级 multi_app_msg_item_list；
+            # 若 app_msg_ext_info 缺失但根级有文章，不能整条丢弃（否则漏抓）。
+            _debug_log(
+                "SKIP push "
+                + json.dumps(
+                    {
+                        "id": msg.get("comm_msg_info", {}).get("id")
+                        if isinstance(msg.get("comm_msg_info"), dict)
+                        else None,
+                        "type": msg.get("comm_msg_info", {}).get("type")
+                        if isinstance(msg.get("comm_msg_info"), dict)
+                        else None,
+                        "keys": sorted(msg.keys()),
+                        "title": (msg.get("app_msg_ext_info") or {}).get("title")
+                        if isinstance(msg.get("app_msg_ext_info"), dict)
+                        else None,
+                    },
+                    ensure_ascii=False,
+                )
+            )
             continue
 
         for ordinal, item in _iter_msg_article_items(msg):
@@ -584,6 +633,7 @@ def fetch_history_days(
 
     page_limit = max(1, int(max_pages))
     t0 = time.time()
+    stop_reason = "completed"
     for i in range(page_limit):
         if should_cancel and should_cancel():
             partial = merge_articles_with_sightings(
@@ -647,6 +697,25 @@ def fetch_history_days(
         except Exception:
             raw_msg_count = len(batch)
 
+        _page_ts = [int(a.get("publish_ts") or 0) for a in batch]
+        _debug_log(
+            "PAGE "
+            + json.dumps(
+                {
+                    "page": i + 1,
+                    "offset": offset,
+                    "next_offset": page.get("next_offset"),
+                    "can_continue": page.get("can_continue"),
+                    "raw_msg_count": raw_msg_count,
+                    "parsed": len(batch),
+                    "ts_min": min(_page_ts) if _page_ts else None,
+                    "ts_max": max(_page_ts) if _page_ts else None,
+                    "titles": [str(a.get("title") or "") for a in batch],
+                },
+                ensure_ascii=False,
+            )
+        )
+
         for a in batch:
             ts = int(a.get("publish_ts") or 0)
             if cutoff is not None and ts and ts < cutoff:
@@ -661,8 +730,10 @@ def fetch_history_days(
         page_fully_old = bool(batch) and newest > 0 and cutoff is not None and newest < cutoff
 
         if page_fully_old:
+            stop_reason = "page_fully_old"
             break
         if raw_msg_count <= 0 and not batch:
+            stop_reason = "empty_page"
             break
 
         nxt = page.get("next_offset")
@@ -672,8 +743,10 @@ def fetch_history_days(
             try:
                 nxt_i = int(nxt)
             except Exception:
+                stop_reason = "bad_next_offset"
                 break
         if nxt_i <= offset:
+            stop_reason = "next_offset_not_advancing"
             break
 
         offset = nxt_i
@@ -684,9 +757,17 @@ def fetch_history_days(
             hit_page_cap = True
             last_can_continue = True
 
+    _debug_log(
+        "STOP reason=" + stop_reason + " pages=" + str(pages) + " raw_articles=" + str(len(articles))
+        + " cutoff=" + str(cutoff) + " upper=" + str(upper_ts)
+    )
     base_n = len(_dedupe(articles))
     deduped = merge_articles_with_sightings(
         articles, sightings or [], cutoff_ts=cutoff, biz=biz
+    )
+    _debug_log(
+        "RESULT deduped=" + str(len(deduped)) + " raw=" + str(len(articles))
+        + " merged_sightings=" + str(len(sightings or []))
     )
     merged_extra = max(0, len(deduped) - base_n)
     if upper_ts is not None:
