@@ -56,7 +56,7 @@ Source repository: [Alexxxxxxxxxxxxy/schinza-wechat-certificate](https://github.
 | **Credential Manager** | Install bundled MITM CA, start local proxy, capture `__biz` / `uin` / `key` / `pass_ticket` from WeChat Desktop; **30‑minute TTL** with renew / copy JSON / **search by name** |
 | **History Articles** | Fetch **7 / 30 / 90‑day / all / custom‑day / custom date‑range** history; list export; per‑article or batch body export; optional **URL补录** |
 | **List export** | JSON · CSV (Excel) · TSV · Markdown · plain links · title+link |
-| **Article export** | Per-article or **batch**: **HTML** · **Markdown** · **TXT** · **JSON** · **Word (.docx)** |
+| **Article export** | Per-article or **batch**: **HTML** · **Markdown** · **TXT** · **JSON** · **CSV** (batch merges all into one file) · **Word (.docx)** |
 | **Sync Server** | Import Schinza OA list CSV; match local valid credentials by name, then copy or batch upload (≤ 50/batch) to your own open API server |
 
 All credentials and exports stay under local `data/`. The app never uploads automatically — only the **Sync Server** tab can upload matched credentials to the server address you fill in yourself (**no built-in default; you must enter it, e.g. `https://your-server.com/schinza`**).
@@ -247,7 +247,7 @@ CI does **not** publish an Intel (x86_64) bundle (the Intel `macos-13` runner wa
 
 **History list:** JSON · CSV · TSV · Markdown · plain links · title+link  
 
-**Single / batch article:** HTML · Markdown · TXT · JSON · Word (.docx)  
+**Single / batch article:** HTML · Markdown · TXT · JSON · CSV · Word (.docx)  
 
 ---
 

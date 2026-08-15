@@ -56,7 +56,7 @@
 | **凭证管理** | 安装随包 MITM CA、启动本地代理，从微信桌面捕获 `__biz` / `uin` / `key` / `pass_ticket`；每套凭证 **30 分钟**有效，支持续约 / 复制 JSON / **按名称搜索** |
 | **历史文章** | 拉取 **近 7 / 30 / 90 天 / 全部 / 自定义天数 / 自定义日期范围**历史；列表导出；单篇 / 批量正文导出；可选 **补录链接** |
 | **列表导出** | JSON · CSV（Excel）· TSV · Markdown · 纯链接 · 标题+链接 |
-| **正文导出** | 单篇或**批量**：**HTML** · **Markdown** · **TXT** · **JSON** · **Word (.docx)** |
+| **正文导出** | 单篇或**批量**：**HTML** · **Markdown** · **TXT** · **JSON** · **CSV**（批量合并一个文件）· **Word (.docx)** |
 | **同步服务器** | 导入 Schinza 公众号列表 CSV；本地凭证按名称匹配后一键复制或分批上传（≤50/批）到**你自己的**开放接口服务器 |
 
 所有凭证与导出保存在本机 `data/`；应用不会自动上传，仅「同步服务器」页签会按你填写的服务器地址上传匹配到的凭证（**无内置默认地址，需自行填写**，如 `https://your-server.com/schinza`）。
@@ -243,7 +243,7 @@ CI 暂不发布 Intel (x86_64) 版（Intel 的 `macos-13` runner 已退役）。
 
 **历史列表：** JSON · CSV · TSV · Markdown · 纯链接 · 标题+链接  
 
-**单篇 / 批量正文：** HTML · Markdown · TXT · JSON · Word (.docx)  
+**单篇 / 批量正文：** HTML · Markdown · TXT · JSON · CSV · Word (.docx)（CSV 批量 = 全部合并到一个文件）  
 
 ---
 

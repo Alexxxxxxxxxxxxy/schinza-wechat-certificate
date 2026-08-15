@@ -3108,13 +3108,29 @@ class CertificateApp(ctk.CTk):
         label = ARTICLE_EXPORT_FORMATS.get(fmt_key, fmt_key)
         initial_dir = str((self.root_dir / "data" / "exports").resolve())
         Path(initial_dir).mkdir(parents=True, exist_ok=True)
-        dir_str = filedialog.askdirectory(
-            parent=self,
-            title=f"选择批量导出目录（{label} · {len(selected)} 篇）",
-            initialdir=initial_dir,
-        )
-        if not dir_str:
-            return
+        csv_path = None
+        if fmt_key == "csv":
+            # CSV 批量 = 全部文章合并进一个文件，用「另存为」选择路径
+            path_str = filedialog.asksaveasfilename(
+                parent=self,
+                title=f"导出全部为 CSV（{len(selected)} 篇合并到一个文件）",
+                initialdir=initial_dir,
+                initialfile="文章导出.csv",
+                defaultextension=".csv",
+                filetypes=[("CSV 文件", "*.csv"), ("所有文件", "*.*")],
+            )
+            if not path_str:
+                return
+            dir_str = str(Path(path_str).parent)
+            csv_path = path_str
+        else:
+            dir_str = filedialog.askdirectory(
+                parent=self,
+                title=f"选择批量导出目录（{label} · {len(selected)} 篇）",
+                initialdir=initial_dir,
+            )
+            if not dir_str:
+                return
 
         self._batch_exporting = True
         self.batch_export_btn.configure(state="disabled", text="导出中…")
@@ -3131,6 +3147,7 @@ class CertificateApp(ctk.CTk):
                     on_progress=lambda m: self.after(
                         0, lambda msg=m: self.set_hist_status(msg, ok=True)
                     ),
+                    csv_path=csv_path,
                 )
                 err = ""
             except Exception as exc:  # noqa: BLE001
@@ -3150,7 +3167,7 @@ class CertificateApp(ctk.CTk):
             return
         ok_n = int(result.get("ok") or 0)
         fail_n = int(result.get("failed") or 0)
-        out = result.get("out_dir") or ""
+        out = result.get("out_file") or result.get("out_dir") or ""
         if fail_n > 0:
             errors = list(result.get("errors") or [])
             report = ""

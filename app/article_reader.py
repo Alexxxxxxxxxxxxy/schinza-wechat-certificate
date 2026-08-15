@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from app.errors import describe_exception
 
+import csv
 import html
 import io
 import json
@@ -37,6 +38,7 @@ ARTICLE_EXPORT_FORMATS: dict[str, str] = {
     "markdown": "Markdown",
     "txt": "TXT",
     "json": "JSON",
+    "csv": "CSV",
     "word": "Word",
 }
 
@@ -309,6 +311,30 @@ def article_to_json(art: dict[str, Any]) -> str:
         "exported_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
     return json.dumps(payload, ensure_ascii=False, indent=2)
+
+
+CSV_COLUMNS = ("标题", "链接", "发布时间", "作者", "摘要", "正文")
+
+
+def article_to_csv_row(art: dict[str, Any]) -> dict[str, str]:
+    """One CSV row for an article (标题/链接/时间/作者/摘要/正文)."""
+    return {
+        "标题": str(art.get("title") or "(无标题)"),
+        "链接": str(art.get("link") or ""),
+        "发布时间": str(art.get("publish_at") or ""),
+        "作者": str(art.get("author") or ""),
+        "摘要": str(art.get("digest") or ""),
+        "正文": str(art.get("body_text") or "").strip(),
+    }
+
+
+def _write_csv(path: Path, rows: list[dict[str, str]]) -> None:
+    """Write CSV with utf-8-sig BOM so Excel opens Chinese correctly."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8-sig", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=list(CSV_COLUMNS))
+        writer.writeheader()
+        writer.writerows(rows)
 
 
 def article_to_html_document(art: dict[str, Any]) -> str:
@@ -637,6 +663,7 @@ def _normalize_fmt(fmt: str) -> str:
         "txt": "txt",
         "text": "txt",
         "json": "json",
+        "csv": "csv",
         "word": "word",
         "docx": "word",
         "doc": "word",
@@ -655,6 +682,12 @@ def render_article_export(art: dict[str, Any], fmt: str) -> str:
         return article_to_txt(art)
     if key == "json":
         return article_to_json(art)
+    if key == "csv":
+        buf = io.StringIO()
+        writer = csv.DictWriter(buf, fieldnames=list(CSV_COLUMNS))
+        writer.writeheader()
+        writer.writerow(article_to_csv_row(art))
+        return buf.getvalue()
     if key == "word":
         raise ValueError("Word 为二进制格式，请使用 write_article_export / article_to_docx")
     raise ValueError(f"不支持的导出格式: {fmt}")
@@ -666,6 +699,8 @@ def write_article_export(path: Path | str, art: dict[str, Any], fmt: str) -> Pat
     key = _normalize_fmt(fmt)
     if key == "word":
         path.write_bytes(article_to_docx(art))
+    elif key == "csv":
+        _write_csv(path, [article_to_csv_row(art)])
     else:
         path.write_text(render_article_export(art, key), encoding="utf-8")
     return path
@@ -709,10 +744,12 @@ def batch_export_articles(
     cred: dict[str, Any] | None = None,
     on_progress: Callable[[str], None] | None = None,
     sleep_s: float = 0.3,
+    csv_path: Path | str | None = None,
 ) -> dict[str, Any]:
     """Fetch each article body and write into ``out_dir``.
 
     ``fetch_article(url, cred=...)`` defaults to ``fetch_and_parse_article``.
+    CSV 格式：所有文章合并进**一个** csv（``csv_path`` 或 ``out_dir/导出文章.csv``）。
     """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -723,6 +760,7 @@ def batch_export_articles(
     failed_n = 0
     errors: list[str] = []
     written: list[str] = []
+    rows_out: list[dict[str, str]] = []
 
     for i, row in enumerate(articles, start=1):
         link = str(row.get("link") or "").strip()
@@ -741,9 +779,12 @@ def batch_export_articles(
                 parsed["publish_ts"] = row.get("publish_ts")
             if not parsed.get("title") or parsed.get("title") == "(无标题)":
                 parsed["title"] = title or parsed.get("title")
-            fname = safe_export_filename(str(parsed.get("title") or title), ext=ext, index=i)
-            path = write_article_export(out_dir / fname, parsed, key)
-            written.append(str(path))
+            if key == "csv":
+                rows_out.append(article_to_csv_row(parsed))
+            else:
+                fname = safe_export_filename(str(parsed.get("title") or title), ext=ext, index=i)
+                path = write_article_export(out_dir / fname, parsed, key)
+                written.append(str(path))
             ok_n += 1
         except Exception as exc:  # noqa: BLE001
             failed_n += 1
@@ -751,12 +792,18 @@ def batch_export_articles(
         if sleep_s > 0 and i < len(articles):
             time.sleep(sleep_s)
 
+    if key == "csv":
+        final_csv = Path(csv_path) if csv_path else out_dir / "导出文章.csv"
+        _write_csv(final_csv, rows_out)
+        written = [str(final_csv)]
+
     return {
         "ok": ok_n,
         "failed": failed_n,
         "errors": errors,
         "written": written,
         "out_dir": str(out_dir),
+        "out_file": written[0] if written else "",
         "fmt": key,
     }
 
@@ -778,6 +825,8 @@ def extension_for_article_format(fmt: str) -> str:
         return "txt"
     if key == "json":
         return "json"
+    if key == "csv":
+        return "csv"
     if key == "word":
         return "docx"
     return "md"
