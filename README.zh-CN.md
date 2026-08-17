@@ -197,6 +197,12 @@ dist/Schinza.app
 
 > 当前打包产物为 **Apple Silicon (arm64)** 单架构。未签名 .app 在他人机器上首次打开需「右键 → 打开」绕过 Gatekeeper；正式分发建议使用 Apple Developer ID 签名 + 公证（Notarization）。
 
+### macOS 常见问题
+- **数据/日志位置**：macOS 打包版数据放在 `~/Library/Application Support/Schinza/data/`（`capture_debug.log`、`app.log` 在这里），不是 .app 包内。
+- **浏览器报「连接不是私密连接」**：说明系统里信任的 CA 与当前版本不一致（更新版本会换新证书）。打开「钥匙串访问」→ 删除旧的 `mitmproxy` 证书 → 回程序点「安装 CA 证书」→ 重启微信/浏览器。程序会自动检测不一致并提示。
+- **微信 Mac 抓不到凭证**：设置代理后**必须重启微信 Mac**（部分版本不跟随系统代理）。若重启后仍无流量，说明该微信版本绕过系统代理——自动抓包不可用，只能手动「粘贴凭证/补录链接」。
+- **设置代理失败**：macOS 改代理需要管理员权限，失败时会提示手动设置：系统设置 → 网络 → 代理 → 网页代理/安全网页代理 `127.0.0.1:8088`。
+
 ### macOS 系统要求（.app / .dmg 产物）
 
 - **Apple Silicon Mac**（M1 及更新）——CI 发布的安装包为 arm64 版
@@ -243,7 +249,7 @@ CI 暂不发布 Intel (x86_64) 版（Intel 的 `macos-13` runner 已退役）。
 
 **历史列表：** JSON · CSV · TSV · Markdown · 纯链接 · 标题+链接  
 
-**单篇 / 批量正文：** HTML · Markdown · TXT · JSON · CSV · Word (.docx)（CSV 批量 = 全部合并到一个文件）  
+**单篇 / 批量正文：** HTML · Markdown · TXT · JSON · CSV · Word (.docx)（CSV 批量 = 全部合并到一个文件）；文章内视频可自动下载（`视频/` 子目录），视频信息进入全部导出格式  
 
 ---
 

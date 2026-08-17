@@ -201,6 +201,12 @@ The script creates a `.venv-mac` virtualenv → copies the CA from `~/.mitmproxy
 
 > The built bundle is currently **Apple Silicon (arm64)** only. Unsigned `.app` binaries need "right-click → Open" on other machines to bypass Gatekeeper; for wide distribution, sign with an Apple Developer ID and notarize.
 
+### macOS troubleshooting
+- **Data / logs**: the packaged macOS app keeps data in `~/Library/Application Support/Schinza/data/` (`capture_debug.log`, `app.log`) — not inside the .app bundle.
+- **Browser "connection is not private"**: the trusted CA no longer matches the current build (new builds ship a new cert). Open Keychain Access → delete the old `mitmproxy` cert → click "Install CA" again → restart WeChat/browser. The app detects and warns about mismatches.
+- **WeChat Mac captures nothing**: after enabling the proxy you **must restart WeChat Mac** (some versions don't follow the system proxy). If there is still no traffic, that WeChat version bypasses the system proxy — auto-capture is unavailable; use manual paste/补录 instead.
+- **Proxy setting fails**: changing the macOS proxy needs admin rights; on failure the app explains manual steps (System Settings → Network → Proxies → web/secure proxy `127.0.0.1:8088`).
+
 ### System requirements (macOS bundle)
 
 - **Apple Silicon Mac** (M1 or later) — CI releases ship an arm64 bundle
@@ -247,7 +253,7 @@ CI does **not** publish an Intel (x86_64) bundle (the Intel `macos-13` runner wa
 
 **History list:** JSON · CSV · TSV · Markdown · plain links · title+link  
 
-**Single / batch article:** HTML · Markdown · TXT · JSON · CSV · Word (.docx)  
+**Single / batch article:** HTML · Markdown · TXT · JSON · CSV · Word (.docx); embedded videos can be downloaded (`视频/` folder) and appear in every export format  
 
 ---
 

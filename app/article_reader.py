@@ -207,6 +207,7 @@ def parse_wechat_article_html(
         "link": source_url or "",
         "publish_ts": publish_ts,
         "publish_at": publish_at,
+        "videos": extract_videos_from_html(body_html or html_text),
     }
 
 
@@ -227,7 +228,21 @@ def article_to_markdown(art: dict[str, Any]) -> str:
         lines.append("")
     lines.append(body)
     lines.append("")
+    lines.extend(_video_lines(art))
     return "\n".join(lines)
+
+
+def _video_lines(art: dict[str, Any]) -> list[str]:
+    """Return text lines listing an article's videos (downloaded path or URL)."""
+    videos = [v for v in (art.get("videos") or []) if isinstance(v, dict)]
+    if not videos:
+        return []
+    lines = ["", "视频："]
+    for v in videos:
+        target = str(v.get("local_path") or v.get("url") or "").strip()
+        if target:
+            lines.append(f"  {target}")
+    return lines
 
 
 def _html_fragment_to_markdown(fragment: str) -> str:
@@ -297,6 +312,7 @@ def article_to_txt(art: dict[str, Any]) -> str:
         lines.append("")
     lines.append(body)
     lines.append("")
+    lines.extend(_video_lines(art))
     return "\n".join(lines)
 
 
@@ -308,12 +324,13 @@ def article_to_json(art: dict[str, Any]) -> str:
         "publish_at": art.get("publish_at") or "",
         "body_text": art.get("body_text") or "",
         "body_html": art.get("body_html") or "",
+        "videos": art.get("videos") or [],
         "exported_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
 
-CSV_COLUMNS = ("标题", "链接", "发布时间", "作者", "摘要", "正文")
+CSV_COLUMNS = ("标题", "链接", "发布时间", "作者", "摘要", "正文", "视频")
 
 
 def article_to_csv_row(art: dict[str, Any]) -> dict[str, str]:
@@ -325,6 +342,11 @@ def article_to_csv_row(art: dict[str, Any]) -> dict[str, str]:
         "作者": str(art.get("author") or ""),
         "摘要": str(art.get("digest") or ""),
         "正文": str(art.get("body_text") or "").strip(),
+        "视频": " | ".join(
+            str(v.get("local_path") or v.get("url") or "")
+            for v in (art.get("videos") or [])
+            if isinstance(v, dict) and (v.get("local_path") or v.get("url"))
+        ),
     }
 
 
@@ -335,6 +357,110 @@ def _write_csv(path: Path, rows: list[dict[str, str]]) -> None:
         writer = csv.DictWriter(fh, fieldnames=list(CSV_COLUMNS))
         writer.writeheader()
         writer.writerows(rows)
+
+
+VIDEO_DL_DIRNAME = "视频"
+
+
+def extract_videos_from_html(raw_html: str) -> list[dict[str, str]]:
+    """Extract videos from article HTML: WeChat CDN mp4 + Tencent v.qq.com iframes."""
+    videos: list[dict[str, str]] = []
+    if not raw_html:
+        return videos
+    seen: set[str] = set()
+    try:
+        soup = BeautifulSoup(raw_html or "", "html.parser")
+    except Exception:
+        return videos
+
+    def add(kind: str, url: str, vid: str = "") -> None:
+        url = html.unescape((url or "").strip())
+        if not url or url in seen:
+            return
+        seen.add(url)
+        item: dict[str, str] = {"kind": kind, "url": url}
+        if vid:
+            item["vid"] = vid
+        videos.append(item)
+
+    for v in soup.find_all("video"):
+        src = v.get("src") or v.get("data-src") or ""
+        if src:
+            add("mp4", src)
+    for m in soup.find_all("mpvideo"):
+        src = m.get("src") or m.get("data-src") or ""
+        if src:
+            add("mp4", src)
+    for f in soup.find_all("iframe"):
+        src = f.get("data-src") or f.get("src") or ""
+        if "v.qq.com" in (src or ""):
+            m = re.search(r"[?&]vid=([A-Za-z0-9]+)", src or "")
+            vid = m.group(1) if m else ""
+            if vid:
+                add("qq_video", f"https://v.qq.com/x/page/{vid}.html", vid=vid)
+            elif src:
+                add("qq_video", src)
+    return videos
+
+
+def _download_file(url: str, path: Path, *, cred: dict[str, Any] | None, timeout: float) -> None:
+    headers = {
+        "User-Agent": USER_AGENT,
+        "Referer": "https://mp.weixin.qq.com/",
+        "Accept": "*/*",
+    }
+    cookies: dict[str, str] = {}
+    if cred:
+        pt = str(cred.get("pass_ticket") or "").strip()
+        if pt:
+            cookies["pass_ticket"] = _fully_unquote(pt)
+    sess = requests.Session()
+    sess.trust_env = False
+    resp = sess.get(url, headers=headers, cookies=cookies, timeout=timeout, stream=True)
+    try:
+        resp.raise_for_status()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("wb") as fh:
+            for chunk in resp.iter_content(chunk_size=65536):
+                if chunk:
+                    fh.write(chunk)
+    finally:
+        close = getattr(resp, "close", None)
+        if callable(close):
+            close()
+
+
+def download_article_videos(
+    art: dict[str, Any],
+    out_dir: Path | str,
+    *,
+    cred: dict[str, Any] | None = None,
+    timeout: float = 30.0,
+) -> list[dict[str, Any]]:
+    """Download mp4 videos into ``out_dir/视频/``; v.qq.com links are kept as-is."""
+    videos: list[dict[str, Any]] = []
+    for v in art.get("videos") or []:
+        if isinstance(v, dict):
+            videos.append(dict(v))
+    if not videos:
+        return videos
+    dl_dir = Path(out_dir) / VIDEO_DL_DIRNAME
+    safe = re.sub(r'[\\/:*?"<>|]+', "_", str(art.get("title") or "article"))[:48] or "article"
+    n = 0
+    for v in videos:
+        if v.get("kind") != "mp4":
+            continue
+        url = str(v.get("url") or "").strip()
+        if not url:
+            continue
+        n += 1
+        path = dl_dir / f"{safe}_{n:02d}.mp4"
+        try:
+            _download_file(url, path, cred=cred, timeout=timeout)
+            v["local_path"] = str(path)
+        except Exception as exc:  # noqa: BLE001
+            v["error"] = describe_exception(exc)
+    return videos
 
 
 def article_to_html_document(art: dict[str, Any]) -> str:
@@ -649,6 +775,24 @@ def article_to_docx(art: dict[str, Any]) -> bytes:
     else:
         doc.add_paragraph("（无正文）")
 
+    videos = [
+        v
+        for v in (art.get("videos") or [])
+        if isinstance(v, dict) and (v.get("local_path") or v.get("url"))
+    ]
+    if videos:
+        p = doc.add_paragraph()
+        run = p.add_run("视频：")
+        _set_run_font(run, size=11, bold=True)
+        for v in videos:
+            target = str(v.get("local_path") or v.get("url") or "").strip()
+            if not target:
+                continue
+            p2 = doc.add_paragraph()
+            _docx_add_hyperlink(p2, str(v.get("url") or target), target)
+            for run in p2.runs:
+                _set_run_font(run, size=10, color="0563C1")
+
     buf = io.BytesIO()
     doc.save(buf)
     return buf.getvalue()
@@ -745,6 +889,7 @@ def batch_export_articles(
     on_progress: Callable[[str], None] | None = None,
     sleep_s: float = 0.3,
     csv_path: Path | str | None = None,
+    download_videos: bool = True,
 ) -> dict[str, Any]:
     """Fetch each article body and write into ``out_dir``.
 
@@ -779,6 +924,8 @@ def batch_export_articles(
                 parsed["publish_ts"] = row.get("publish_ts")
             if not parsed.get("title") or parsed.get("title") == "(无标题)":
                 parsed["title"] = title or parsed.get("title")
+            if download_videos:
+                parsed["videos"] = download_article_videos(parsed, out_dir, cred=cred)
             if key == "csv":
                 rows_out.append(article_to_csv_row(parsed))
             else:

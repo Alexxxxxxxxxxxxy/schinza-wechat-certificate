@@ -11,6 +11,14 @@ from pathlib import Path
 
 def _root_dir() -> Path:
     if getattr(sys, "frozen", False):
+        if sys.platform == "darwin":
+            # macOS: 数据放用户目录，避免写在 .app 包内（只读/找不到）
+            base = Path.home() / "Library" / "Application Support" / "Schinza"
+            try:
+                base.mkdir(parents=True, exist_ok=True)
+            except Exception:
+                base = Path(sys.executable).resolve().parent
+            return base
         return Path(sys.executable).resolve().parent
     return Path(__file__).resolve().parent
 

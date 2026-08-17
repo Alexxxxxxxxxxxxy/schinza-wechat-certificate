@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import sys
@@ -175,6 +176,47 @@ def install_ca(app_root: Path) -> tuple[bool, str]:
     return install_ca_windows(app_root)
 
 
+def _parse_sha1_fingerprint(output: str) -> str | None:
+    """Extract SHA-1 fingerprint (colon-separated hex) from security/openssl output."""
+    m = re.search(
+        r"SHA-?1(?: (?:Fingerprint|hash))?[:=]\s*([0-9A-Fa-f:]+)",
+        output or "",
+        re.IGNORECASE,
+    )
+    return m.group(1).replace(":", "").lower() if m else None
+
+
+def _cert_fingerprint(cer: Path) -> str | None:
+    try:
+        out = subprocess.check_output(
+            ["openssl", "x509", "-in", str(cer), "-noout", "-fingerprint", "-sha1"],
+            text=True, errors="replace", stderr=subprocess.DEVNULL,
+        )
+    except Exception:
+        return None
+    return _parse_sha1_fingerprint(out)
+
+
+def _installed_ca_fingerprint() -> str | None:
+    """SHA-1 of the mitmproxy CA currently in macOS login/system keychains, if any."""
+    keychains = (
+        str(Path.home() / "Library" / "Keychains" / "login.keychain-db"),
+        "/Library/Keychains/System.keychain",
+    )
+    for kc in keychains:
+        try:
+            out = subprocess.check_output(
+                ["security", "find-certificate", "-a", "-c", "mitmproxy", "-Z", kc],
+                text=True, errors="replace", stderr=subprocess.DEVNULL,
+            )
+        except Exception:
+            continue
+        fp = _parse_sha1_fingerprint(out)
+        if fp:
+            return fp
+    return None
+
+
 def install_ca_macos(app_root: Path) -> tuple[bool, str]:
     """Import public CA into macOS login keychain trust store via security(1)."""
     cer = app_root / CER_NAME
@@ -186,6 +228,20 @@ def install_ca_macos(app_root: Path) -> tuple[bool, str]:
         cer = ensure_beside(app_root, CER_NAME) or (app_root / CER_NAME)
     if not cer.is_file():
         return False, f"未找到 {CER_NAME} / {P12_PUBLIC}，请先启动一次抓包代理生成证书"
+
+    # CA 一致性：当前包内置的证书必须与系统里已信任的一致，否则浏览器报「不是私密连接」
+    want = _cert_fingerprint(cer)
+    have = _installed_ca_fingerprint()
+    if have and want and have == want:
+        return True, "CA 已信任且与当前版本一致，无需重复安装。请重启微信后再抓包。"
+    if have and want and have != want:
+        return (
+            False,
+            "检测到系统里已安装的 mitmproxy CA 与当前版本不一致（更新版本会换新证书）。\n"
+            "请先打开「钥匙串访问」→ 搜索 mitmproxy → 删除旧证书，再点一次「安装 CA 证书」，"
+            "然后重启微信。",
+        )
+
     keychain = str(Path.home() / "Library" / "Keychains" / "login.keychain-db")
     # 1) Try to add as a trusted root for the current user (may prompt for password)
     cmd = ["security", "add-trusted-cert", "-d", "-r", "trustRoot", "-k", keychain, str(cer)]

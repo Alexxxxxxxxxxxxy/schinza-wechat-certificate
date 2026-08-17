@@ -24,6 +24,7 @@ MONO_FONT = "Menlo" if sys.platform == "darwin" else "Consolas"
 
 from app.article_reader import (
     ARTICLE_EXPORT_FORMATS,
+    download_article_videos,
     fetch_biz_from_url,
     ARTICLE_EXPORT_LABELS,
     batch_export_articles,
@@ -290,6 +291,7 @@ class CertificateApp(ctk.CTk):
         self._history_days: int | None = DEFAULT_HISTORY_DAYS
         self._history_custom_days: int | None = None
         self._history_range_iso: tuple[str, str] | None = None
+        self._export_download_videos_var = ctk.BooleanVar(value=True)
         self._history_articles: list[dict[str, Any]] = []
         self._history_account_name: str = ""
         self._history_cred: dict[str, Any] = {}
@@ -968,6 +970,21 @@ class CertificateApp(ctk.CTk):
         )
         self.article_fmt_menu.set("Markdown")
         self.article_fmt_menu.pack(side="left", padx=(0, 14))
+
+        ctk.CTkCheckBox(
+            batch_tools,
+            text="下载视频",
+            variable=self._export_download_videos_var,
+            width=96,
+            height=32,
+            checkbox_width=18,
+            checkbox_height=18,
+            border_color=COLORS["border"],
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            text_color=COLORS["text"],
+            font=ctk.CTkFont(family=UI_FONT, size=12),
+        ).pack(side="left", padx=(0, 14))
 
         ctk.CTkButton(
             batch_tools,
@@ -3066,6 +3083,10 @@ class CertificateApp(ctk.CTk):
                     parsed["publish_at"] = art.get("publish_at")
                 if not parsed.get("publish_ts") and art.get("publish_ts"):
                     parsed["publish_ts"] = art.get("publish_ts")
+                if self._export_download_videos_var.get():
+                    parsed["videos"] = download_article_videos(
+                        parsed, Path(path_str).parent, cred=cred or None
+                    )
                 path = write_article_export(Path(path_str), parsed, fmt_key)
                 err = ""
             except Exception as exc:  # noqa: BLE001
@@ -3148,6 +3169,7 @@ class CertificateApp(ctk.CTk):
                         0, lambda msg=m: self.set_hist_status(msg, ok=True)
                     ),
                     csv_path=csv_path,
+                    download_videos=self._export_download_videos_var.get(),
                 )
                 err = ""
             except Exception as exc:  # noqa: BLE001

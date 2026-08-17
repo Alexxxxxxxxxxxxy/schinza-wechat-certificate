@@ -317,7 +317,10 @@ class MitmCaptureService:
                         ["networksetup", stater, svc, "on"],
                         check=True, capture_output=True, text=True,
                     )
-                return True, f"已设置系统代理（{svc}）→ 127.0.0.1:8088"
+                return True, (
+                    f"已设置系统代理（{svc}）→ 127.0.0.1:8088。"
+                    "请重启微信 Mac（部分版本不会自动跟随系统代理）再打开文章抓包。"
+                )
             # restore
             backup, self._mac_proxy_backup = self._mac_proxy_backup, None
             if backup:
@@ -342,7 +345,13 @@ class MitmCaptureService:
                     )
             return True, "已恢复系统代理设置（macOS）"
         except subprocess.CalledProcessError as exc:
-            return False, f"networksetup 执行失败：{exc.stderr or exc}"
+            return (
+                False,
+                "设置 macOS 系统代理需要管理员权限，networksetup 执行失败："
+                f"{exc.stderr or exc}\n"
+                "可手动设置：系统设置 → 网络 → 详细信息 → 代理 → 勾选网页代理/安全网页代理，"
+                "服务器 127.0.0.1 端口 8088，然后重启微信。",
+            )
         except Exception as exc:  # noqa: BLE001
             return False, f"设置系统代理异常：{exc}"
 
