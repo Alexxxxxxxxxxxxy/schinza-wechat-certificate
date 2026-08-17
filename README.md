@@ -159,6 +159,9 @@ the article list.
 Direct connection to `mp.weixin.qq.com` failed: check your network, clear leftover proxy,
 restart the app. The app already retries twice automatically.
 
+### Rate-limited / "操作频繁"
+Fetch has built-in anti-risk-control: jittered page delays, an extra cooldown every 5 pages, and rate-limit error hints. Still recommend: avoid frequent "全部" fetches, space out accounts, pause a few minutes when limited.
+
 ### "Renew all" / renew does nothing
 Renewal depends on WeChat emitting a request that carries **complete credentials**
 (`__biz`+`uin`+`key` in the URL, e.g. getappmsgext / getmsg). Just refreshing an
@@ -253,7 +256,7 @@ CI does **not** publish an Intel (x86_64) bundle (the Intel `macos-13` runner wa
 
 **History list:** JSON · CSV · TSV · Markdown · plain links · title+link  
 
-**Single / batch article:** HTML · Markdown · TXT · JSON · CSV · Word (.docx); embedded videos can be downloaded (`视频/` folder) and appear in every export format  
+**Single / batch article:** HTML · Markdown · TXT · JSON · CSV · Word (.docx); embedded videos can be downloaded (`视频/` folder); **optional** read/like/comment stats (off by default) appear in every export format  
 
 ---
 

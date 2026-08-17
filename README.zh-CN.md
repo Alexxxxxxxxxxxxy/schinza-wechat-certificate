@@ -249,7 +249,7 @@ CI 暂不发布 Intel (x86_64) 版（Intel 的 `macos-13` runner 已退役）。
 
 **历史列表：** JSON · CSV · TSV · Markdown · 纯链接 · 标题+链接  
 
-**单篇 / 批量正文：** HTML · Markdown · TXT · JSON · CSV · Word (.docx)（CSV 批量 = 全部合并到一个文件）；文章内视频可自动下载（`视频/` 子目录），视频信息进入全部导出格式  
+**单篇 / 批量正文：** HTML · Markdown · TXT · JSON · CSV · Word (.docx)（CSV 批量 = 全部合并到一个文件）；文章内视频可自动下载（`视频/` 子目录）；**可选**抓取互动数据（阅读/在看/评论数，默认关）进入全部导出格式  
 
 ---
 

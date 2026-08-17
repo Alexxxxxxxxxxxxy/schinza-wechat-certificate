@@ -25,6 +25,7 @@ MONO_FONT = "Menlo" if sys.platform == "darwin" else "Consolas"
 from app.article_reader import (
     ARTICLE_EXPORT_FORMATS,
     download_article_videos,
+    fetch_article_stats,
     fetch_biz_from_url,
     ARTICLE_EXPORT_LABELS,
     batch_export_articles,
@@ -292,6 +293,7 @@ class CertificateApp(ctk.CTk):
         self._history_custom_days: int | None = None
         self._history_range_iso: tuple[str, str] | None = None
         self._export_download_videos_var = ctk.BooleanVar(value=True)
+        self._export_fetch_stats_var = ctk.BooleanVar(value=False)
         self._history_articles: list[dict[str, Any]] = []
         self._history_account_name: str = ""
         self._history_cred: dict[str, Any] = {}
@@ -976,6 +978,21 @@ class CertificateApp(ctk.CTk):
             text="下载视频",
             variable=self._export_download_videos_var,
             width=96,
+            height=32,
+            checkbox_width=18,
+            checkbox_height=18,
+            border_color=COLORS["border"],
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            text_color=COLORS["text"],
+            font=ctk.CTkFont(family=UI_FONT, size=12),
+        ).pack(side="left", padx=(0, 14))
+
+        ctk.CTkCheckBox(
+            batch_tools,
+            text="抓取互动数据",
+            variable=self._export_fetch_stats_var,
+            width=116,
             height=32,
             checkbox_width=18,
             checkbox_height=18,
@@ -3087,6 +3104,8 @@ class CertificateApp(ctk.CTk):
                     parsed["videos"] = download_article_videos(
                         parsed, Path(path_str).parent, cred=cred or None
                     )
+                if self._export_fetch_stats_var.get():
+                    parsed["stats"] = fetch_article_stats(link, cred=cred or None)
                 path = write_article_export(Path(path_str), parsed, fmt_key)
                 err = ""
             except Exception as exc:  # noqa: BLE001
@@ -3170,6 +3189,8 @@ class CertificateApp(ctk.CTk):
                     ),
                     csv_path=csv_path,
                     download_videos=self._export_download_videos_var.get(),
+                    fetch_stats=self._export_fetch_stats_var.get(),
+                    sleep_s=1.0 if self._export_fetch_stats_var.get() else 0.3,
                 )
                 err = ""
             except Exception as exc:  # noqa: BLE001

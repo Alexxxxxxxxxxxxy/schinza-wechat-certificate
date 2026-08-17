@@ -8,6 +8,7 @@ from __future__ import annotations
 import html
 import json
 import os
+import random
 import re
 import time
 from datetime import datetime
@@ -572,13 +573,24 @@ def merge_articles_with_sightings(
     return merged
 
 
+def _rate_limit_hint(err: str) -> str:
+    """返回限流提示（微信风控/操作频繁时），否则空串。"""
+    low = (err or "").lower()
+    if any(k in low for k in ("freq", "频繁", "操作频繁", "unknownerror", "风控", "invalid session")):
+        return "（疑似被微信限流：建议暂停几分钟，降低拉取频率后再试）"
+    return ""
+
+
 def fetch_history_days(
     cred: dict[str, Any],
     *,
     days: int | None = 7,
     max_pages: int = DEFAULT_MAX_PAGES,
     count: int = DEFAULT_PAGE_COUNT,
-    sleep_s: float = 1.0,
+    sleep_s: float = 1.5,
+    sleep_jitter: float = 0.6,
+    cooldown_every: int = 5,
+    cooldown_extra_s: float = 4.0,
     timeout: float = 20.0,
     on_progress: ProgressCb | None = None,
     sightings: list[dict[str, Any]] | None = None,
@@ -672,9 +684,13 @@ def fetch_history_days(
             partial = merge_articles_with_sightings(
                 articles, sightings or [], cutoff_ts=cutoff, biz=biz
             )
+            err_text = page.get("error") or "getmsg 失败"
+            hint = _rate_limit_hint(err_text)
+            if hint:
+                err_text += hint
             return {
                 "ok": False,
-                "error": page.get("error") or "getmsg 失败",
+                "error": err_text,
                 "articles": partial,
                 "pages": pages,
                 "days": days,
@@ -752,7 +768,12 @@ def fetch_history_days(
         offset = nxt_i
 
         if i + 1 < page_limit:
-            time.sleep(sleep_s)
+            delay = sleep_s
+            if sleep_jitter > 0:
+                delay *= random.uniform(max(0.0, 1 - sleep_jitter), 1 + sleep_jitter)
+            if cooldown_every > 0 and (i + 1) % cooldown_every == 0:
+                delay += max(0.0, cooldown_extra_s)
+            time.sleep(delay)
         else:
             hit_page_cap = True
             last_can_continue = True

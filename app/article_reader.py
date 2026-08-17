@@ -11,12 +11,13 @@ import csv
 import html
 import io
 import json
+import random
 import re
 import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import unquote
+from urllib.parse import parse_qs, unquote, urlparse
 
 import requests
 from bs4 import BeautifulSoup, Tag
@@ -229,6 +230,7 @@ def article_to_markdown(art: dict[str, Any]) -> str:
     lines.append(body)
     lines.append("")
     lines.extend(_video_lines(art))
+    lines.extend(_stats_lines(art))
     return "\n".join(lines)
 
 
@@ -313,6 +315,7 @@ def article_to_txt(art: dict[str, Any]) -> str:
     lines.append(body)
     lines.append("")
     lines.extend(_video_lines(art))
+    lines.extend(_stats_lines(art))
     return "\n".join(lines)
 
 
@@ -325,12 +328,13 @@ def article_to_json(art: dict[str, Any]) -> str:
         "body_text": art.get("body_text") or "",
         "body_html": art.get("body_html") or "",
         "videos": art.get("videos") or [],
+        "stats": art.get("stats") or {},
         "exported_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     }
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
 
-CSV_COLUMNS = ("标题", "链接", "发布时间", "作者", "摘要", "正文", "视频")
+CSV_COLUMNS = ("标题", "链接", "发布时间", "作者", "摘要", "正文", "视频", "阅读量", "在看数", "评论数")
 
 
 def article_to_csv_row(art: dict[str, Any]) -> dict[str, str]:
@@ -347,6 +351,9 @@ def article_to_csv_row(art: dict[str, Any]) -> dict[str, str]:
             for v in (art.get("videos") or [])
             if isinstance(v, dict) and (v.get("local_path") or v.get("url"))
         ),
+        "阅读量": str((art.get("stats") or {}).get("read_num") or ""),
+        "在看数": str((art.get("stats") or {}).get("like_num") or ""),
+        "评论数": str((art.get("stats") or {}).get("comment_count") or ""),
     }
 
 
@@ -461,6 +468,113 @@ def download_article_videos(
         except Exception as exc:  # noqa: BLE001
             v["error"] = describe_exception(exc)
     return videos
+
+
+def _link_mid_idx_sn(link: str) -> tuple[str, str, str]:
+    try:
+        q = parse_qs(urlparse(link or "").query)
+    except Exception:
+        return "", "", ""
+    return (
+        str(q.get("mid") or q.get("appmsgid") or [""])[0],
+        str(q.get("idx") or q.get("itemidx") or [""])[0],
+        str(q.get("sn") or [""])[0],
+    )
+
+
+def fetch_article_stats(
+    link: str,
+    cred: dict[str, Any] | None = None,
+    *,
+    timeout: float = 15.0,
+    session: Any | None = None,
+) -> dict[str, Any]:
+    """Fetch 阅读/在看/评论 via getappmsgext. Returns {} on any failure.
+
+    可选功能（默认关闭）：需要有效凭证；阅读量可能被微信隐藏。
+    """
+    c = cred or {}
+    biz = str(c.get("__biz") or "").strip()
+    uin = str(c.get("uin") or "").strip()
+    key = str(c.get("key") or "").strip()
+    pt = str(c.get("pass_ticket") or "").strip()
+    at = str(c.get("appmsg_token") or "").strip()
+    mid, idx, sn = _link_mid_idx_sn(link)
+    if not (biz and uin and key and mid):
+        return {}
+    params = {
+        "f": "json",
+        "mock": "",
+        "__biz": biz,
+        "mid": mid,
+        "idx": idx or "1",
+        "sn": sn,
+        "uin": uin,
+        "key": key,
+        "pass_ticket": pt,
+        "wxtoken": "",
+        "devicetype": "",
+        "clientversion": "0",
+        "x5": "0",
+    }
+    if at:
+        params["appmsg_token"] = at
+    cookies: dict[str, str] = {}
+    if pt:
+        cookies["pass_ticket"] = _fully_unquote(pt)
+    if uin:
+        cookies["wxuin"] = _fully_unquote(uin)
+    headers = {
+        "User-Agent": USER_AGENT,
+        "Referer": link,
+        "Accept": "application/json, text/plain, */*",
+    }
+    sess = session or requests.Session()
+    sess.trust_env = False
+    try:
+        resp = sess.get(
+            "https://mp.weixin.qq.com/mp/getappmsgext",
+            params=params,
+            headers=headers,
+            cookies=cookies,
+            timeout=timeout,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception:
+        return {}
+    out: dict[str, Any] = {}
+    st = data.get("appmsgstat")
+    if isinstance(st, dict):
+        for k in ("read_num", "like_num", "old_like_num", "show_like_num"):
+            if k in st:
+                out[k] = st[k]
+    cm = data.get("comment")
+    if isinstance(cm, dict):
+        total = cm.get("elected_comment_total_count")
+        if total is not None:
+            out["comment_count"] = total
+        else:
+            lst = cm.get("elected_comment") or []
+            if isinstance(lst, list):
+                out["comment_count"] = len(lst)
+    return out
+
+
+def _stats_lines(art: dict[str, Any]) -> list[str]:
+    stats = art.get("stats") or {}
+    if not isinstance(stats, dict):
+        return []
+    parts = []
+    if "read_num" in stats:
+        parts.append(f"阅读 {stats['read_num']}")
+    if "like_num" in stats:
+        parts.append(f"在看 {stats['like_num']}")
+    if "comment_count" in stats:
+        parts.append(f"评论 {stats['comment_count']}")
+    if not parts:
+        return []
+    return ["", "互动：" + " · ".join(parts)]
 
 
 def article_to_html_document(art: dict[str, Any]) -> str:
@@ -793,6 +907,19 @@ def article_to_docx(art: dict[str, Any]) -> bytes:
             for run in p2.runs:
                 _set_run_font(run, size=10, color="0563C1")
 
+    stats = art.get("stats") or {}
+    if isinstance(stats, dict) and any(k in stats for k in ("read_num", "like_num", "comment_count")):
+        parts = []
+        if "read_num" in stats:
+            parts.append(f"阅读 {stats['read_num']}")
+        if "like_num" in stats:
+            parts.append(f"在看 {stats['like_num']}")
+        if "comment_count" in stats:
+            parts.append(f"评论 {stats['comment_count']}")
+        p = doc.add_paragraph()
+        run = p.add_run("互动：" + " · ".join(parts))
+        _set_run_font(run, size=10, color="666666")
+
     buf = io.BytesIO()
     doc.save(buf)
     return buf.getvalue()
@@ -890,6 +1017,7 @@ def batch_export_articles(
     sleep_s: float = 0.3,
     csv_path: Path | str | None = None,
     download_videos: bool = True,
+    fetch_stats: bool = False,
 ) -> dict[str, Any]:
     """Fetch each article body and write into ``out_dir``.
 
@@ -926,6 +1054,8 @@ def batch_export_articles(
                 parsed["title"] = title or parsed.get("title")
             if download_videos:
                 parsed["videos"] = download_article_videos(parsed, out_dir, cred=cred)
+            if fetch_stats:
+                parsed["stats"] = fetch_article_stats(link, cred=cred)
             if key == "csv":
                 rows_out.append(article_to_csv_row(parsed))
             else:
@@ -937,7 +1067,7 @@ def batch_export_articles(
             failed_n += 1
             errors.append(f"{title}: {describe_exception(exc)}")
         if sleep_s > 0 and i < len(articles):
-            time.sleep(sleep_s)
+            time.sleep(sleep_s * random.uniform(0.8, 1.4))
 
     if key == "csv":
         final_csv = Path(csv_path) if csv_path else out_dir / "导出文章.csv"
