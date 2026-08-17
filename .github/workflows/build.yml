@@ -38,15 +38,19 @@ jobs:
         shell: bash
         run: |
           set -e
-          mv dist/Schinza-mac-arm64.dmg Schinza-mac-arm64.dmg
+          # DMG 可选：hdiutil 在部分 CI 环境不产出，不能因此失败
+          if [ -f dist/Schinza-mac-arm64.dmg ]; then
+            mv dist/Schinza-mac-arm64.dmg Schinza-mac-arm64.dmg
+          else
+            echo "DMG 未生成（hdiutil 失败），跳过；.app zip 仍会产出"
+          fi
           (cd dist && zip -r ../Schinza-mac-arm64.zip Schinza.app)
 
       - uses: actions/upload-artifact@v5
         with:
           name: Schinza-mac-arm64
-          path: |
-            Schinza-mac-arm64.zip
-            Schinza-mac-arm64.dmg
+          path: Schinza-mac-arm64.zip
+          if-no-files-found: error
 
   build-windows:
     name: Windows x64
