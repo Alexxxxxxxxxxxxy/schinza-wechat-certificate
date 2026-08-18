@@ -13,7 +13,7 @@ from typing import Callable
 GITHUB_REPO = "Alexxxxxxxxxxxxy/schinza-wechat-certificate"
 RELEASES_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 RELEASE_URL = f"https://github.com/{GITHUB_REPO}/releases/latest"
-APP_VERSION = "1.10.13"
+APP_VERSION = "1.11.13"
 CHECK_TIMEOUT = 12  # seconds
 
 

@@ -31,3 +31,5 @@ mitmproxy-ca-cert.cer
 # Local test output dirs (never commit)
 .tmp_export_test/
 .tmp_stats_test/
+
+.superpowers/*

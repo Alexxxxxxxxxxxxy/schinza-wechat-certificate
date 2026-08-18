@@ -60,6 +60,8 @@ $argsList = @(
   "--hidden-import", "app.sightings",
   "--hidden-import", "app.history_ranges",
   "--hidden-import", "app.history_account_select",
+  "--hidden-import", "app.history_batch",
+  "--hidden-import", "app.history_batch_ui",
   "--hidden-import", "app.capture_target",
   "--hidden-import", "app.updater",
   "--hidden-import", "app.sync_server",
