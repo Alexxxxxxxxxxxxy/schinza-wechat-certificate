@@ -30,3 +30,7 @@ mitmproxy-ca-cert.cer
 # local test temp dirs
 .pytest_tmp*/
 .tmp/
+
+# Local test output dirs (never commit)
+.tmp_export_test/
+.tmp_stats_test/

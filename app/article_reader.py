@@ -380,8 +380,18 @@ def extract_videos_from_html(raw_html: str) -> list[dict[str, str]]:
     except Exception:
         return videos
 
+    def _js_unescape(s: str) -> str:
+        if "\\x" in s:
+            try:
+                import codecs
+
+                s = codecs.decode(s, "unicode_escape")
+            except Exception:
+                pass
+        return html.unescape(s)
+
     def add(kind: str, url: str, vid: str = "") -> None:
-        url = html.unescape((url or "").strip())
+        url = _js_unescape((url or "").strip())
         if not url or url in seen:
             return
         seen.add(url)
@@ -407,13 +417,49 @@ def extract_videos_from_html(raw_html: str) -> list[dict[str, str]]:
                 add("qq_video", f"https://v.qq.com/x/page/{vid}.html", vid=vid)
             elif src:
                 add("qq_video", src)
+
+    # 兜底：真实文章常把视频 URL 藏在 <script>/属性里，直接扫原始 HTML
+    for m in re.finditer("https?://mpvideo\\.qpic\\.cn/[^\\s\"'<>]+", raw_html, re.I):
+        add("mp4", m.group(0))
+    for m in re.finditer("https?://v\\.qq\\.com/[^\\s\"'<>]+", raw_html, re.I):
+        add("qq_video", m.group(0))
+    # 服务号/视频号视频：findermp stodownload 链接（直链需专用接口签名，只记录不下载）
+    for m in re.finditer(
+        "https://findermp\\.video\\.qq\\.com/[\\w/]+/stodownload\\?encfilekey=[^\\s\"'<>]+",
+        raw_html,
+        re.I,
+    ):
+        add("finder", m.group(0))
+
+    # 同一个视频有多个清晰度（f10002/f10004/f10102/f10104），只保留最高清
+    mp4s = [v for v in videos if v["kind"] == "mp4"]
+    if len(mp4s) > 1:
+        best: dict[str, tuple[int, dict[str, str]]] = {}
+        for v in mp4s:
+            base = re.sub(r"\.f\d+\.mp4", "", v["url"].split("?")[0])
+            q = 0
+            m = re.search(r"\.f(\d+)\.mp4", v["url"])
+            if m:
+                q = int(m.group(1))
+            cur = best.get(base)
+            if cur is None or q > cur[0]:
+                best[base] = (q, v)
+        others = [v for v in videos if v["kind"] != "mp4"]
+        videos = others + [b[1] for b in best.values()]
     return videos
 
 
-def _download_file(url: str, path: Path, *, cred: dict[str, Any] | None, timeout: float) -> None:
+def _download_file(
+    url: str,
+    path: Path,
+    *,
+    cred: dict[str, Any] | None,
+    timeout: float,
+    referer: str = "https://mp.weixin.qq.com/",
+) -> None:
     headers = {
         "User-Agent": USER_AGENT,
-        "Referer": "https://mp.weixin.qq.com/",
+        "Referer": referer,
         "Accept": "*/*",
     }
     cookies: dict[str, str] = {}
@@ -463,7 +509,13 @@ def download_article_videos(
         n += 1
         path = dl_dir / f"{safe}_{n:02d}.mp4"
         try:
-            _download_file(url, path, cred=cred, timeout=timeout)
+            _download_file(
+                url,
+                path,
+                cred=cred,
+                timeout=timeout,
+                referer=str(art.get("link") or "https://mp.weixin.qq.com/"),
+            )
             v["local_path"] = str(path)
         except Exception as exc:  # noqa: BLE001
             v["error"] = describe_exception(exc)
