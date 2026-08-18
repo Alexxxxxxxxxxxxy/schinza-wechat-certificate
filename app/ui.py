@@ -1108,7 +1108,12 @@ class CertificateApp(ctk.CTk):
             anchor="w",
         ).grid(row=0, column=0, sticky="w", pady=(0, 10))
 
-        self.hist_groups = ctk.CTkFrame(list_wrap, fg_color="transparent")
+        self.hist_groups = ctk.CTkScrollableFrame(
+            list_wrap,
+            fg_color="transparent",
+            orientation="horizontal",
+            height=40,
+        )
         self.hist_groups.grid(row=1, column=0, sticky="ew", pady=(0, 8))
         self.hist_list = ctk.CTkScrollableFrame(
             list_wrap,

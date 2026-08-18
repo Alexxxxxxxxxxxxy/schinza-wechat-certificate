@@ -11,6 +11,26 @@ ProgressCb = Callable[[int, int, str, str], None]
 FetchOne = Callable[..., dict[str, Any]]
 
 
+def interruptible_sleep(
+    seconds: float,
+    should_cancel: Callable[[], bool] | None = None,
+    sleep_fn: Callable[[float], None] | None = None,
+    *,
+    slice_s: float = 0.2,
+) -> bool:
+    """Sleep in short slices; return True if cancelled before finishing."""
+    pause = sleep_fn or (lambda s: __import__("time").sleep(s))
+    remaining = max(0.0, float(seconds))
+    step = max(0.01, float(slice_s))
+    while remaining > 0:
+        if should_cancel and should_cancel():
+            return True
+        chunk = min(step, remaining)
+        pause(chunk)
+        remaining -= chunk
+    return bool(should_cancel and should_cancel())
+
+
 def _status_from_result(result: dict[str, Any]) -> str:
     reason = str(result.get("stopped_reason") or "")
     if reason == "cancelled" or result.get("cancelled"):
@@ -73,7 +93,7 @@ def fetch_history_batch(
             if prev_reason == "rate_limited":
                 delay += max(0.0, extra_after_rate_limit_s)
             if delay > 0:
-                pause(delay)
+                interruptible_sleep(delay, should_cancel, pause)
 
         if should_cancel and should_cancel() and groups:
             cancelled = True

@@ -1,6 +1,6 @@
 import unittest
 
-from app.history_batch import fetch_history_batch
+from app.history_batch import fetch_history_batch, interruptible_sleep
 
 
 def _acc(i: str, *, active: bool = True, cred: bool = True) -> dict:
@@ -69,7 +69,63 @@ class HistoryBatchTests(unittest.TestCase):
         self.assertEqual(result["groups"][0]["status"], "rate_limited")
         self.assertEqual(len(result["groups"][0]["articles"]), 1)
         self.assertEqual(result["groups"][1]["status"], "completed")
-        self.assertTrue(any(s >= 18.0 for s in sleeps))
+        self.assertGreaterEqual(sum(sleeps), 18.0)
+
+    def test_interruptible_sleep_stops_early_on_cancel(self):
+        sleeps: list[float] = []
+        ticks = {"n": 0}
+
+        def should_cancel():
+            return ticks["n"] >= 3
+
+        def sleep_fn(s: float) -> None:
+            sleeps.append(s)
+            ticks["n"] += 1
+
+        cancelled = interruptible_sleep(
+            10.0,
+            should_cancel,
+            sleep_fn,
+            slice_s=0.2,
+        )
+        self.assertTrue(cancelled)
+        self.assertLess(sum(sleeps), 10.0)
+        self.assertEqual(sleeps, [0.2, 0.2, 0.2])
+
+    def test_cancel_during_inter_account_gap_skips_fetch(self):
+        calls: list[str] = []
+        sleeps: list[float] = []
+        ticks = {"n": 0}
+
+        def should_cancel():
+            return ticks["n"] >= 2
+
+        def sleep_fn(s: float) -> None:
+            sleeps.append(s)
+            ticks["n"] += 1
+
+        def fetch_one(cred, **_kw):
+            calls.append(cred["__biz"])
+            return {
+                "ok": True,
+                "articles": [],
+                "pages": 1,
+                "stopped_reason": "completed",
+            }
+
+        result = fetch_history_batch(
+            [_acc("1"), _acc("2"), _acc("3")],
+            fetch_one=fetch_one,
+            should_cancel=should_cancel,
+            sleep_fn=sleep_fn,
+            between_s=(5.0, 5.0),
+            extra_after_rate_limit_s=0.0,
+        )
+        self.assertEqual(calls, ["b1"])
+        self.assertLess(sum(sleeps), 5.0)
+        self.assertEqual(result["groups"][1]["status"], "cancelled")
+        self.assertEqual(result["groups"][2]["status"], "cancelled")
+        self.assertTrue(result["cancelled"])
 
     def test_cancel_skips_remaining_without_fetch(self):
         calls: list[str] = []
