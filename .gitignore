@@ -33,3 +33,5 @@ mitmproxy-ca-cert.cer
 .tmp_stats_test/
 
 .superpowers/*
+
+test/*
