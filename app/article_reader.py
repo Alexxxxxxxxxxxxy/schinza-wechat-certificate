@@ -208,7 +208,7 @@ def parse_wechat_article_html(
         "link": source_url or "",
         "publish_ts": publish_ts,
         "publish_at": publish_at,
-        "videos": extract_videos_from_html(body_html or html_text),
+        "videos": extract_videos_from_html(html_text or body_html),
     }
 
 
@@ -242,8 +242,13 @@ def _video_lines(art: dict[str, Any]) -> list[str]:
     lines = ["", "视频："]
     for v in videos:
         target = str(v.get("local_path") or v.get("url") or "").strip()
-        if target:
-            lines.append(f"  {target}")
+        if not target:
+            continue
+        label = ""
+        if v.get("kind") == "finder":
+            nick = str(v.get("title") or "").strip()
+            label = f"视频号（{nick}）：" if nick else "视频号："
+        lines.append(f"  {label}{target}")
     return lines
 
 
@@ -390,14 +395,24 @@ def extract_videos_from_html(raw_html: str) -> list[dict[str, str]]:
                 pass
         return html.unescape(s)
 
-    def add(kind: str, url: str, vid: str = "") -> None:
+    def add(kind: str, url: str, vid: str = "", title: str = "") -> None:
         url = _js_unescape((url or "").strip())
-        if not url or url in seen:
+        if not url:
             return
-        seen.add(url)
+        # 视频号同一视频在 HTML 里常有多个 token 变体，按 encfilekey 去重
+        key = url
+        if kind == "finder":
+            m = re.search(r"encfilekey=([^&\s]+)", url)
+            if m:
+                key = f"finder:{m.group(1)}"
+        if key in seen:
+            return
+        seen.add(key)
         item: dict[str, str] = {"kind": kind, "url": url}
         if vid:
             item["vid"] = vid
+        if title:
+            item["title"] = title
         videos.append(item)
 
     for v in soup.find_all("video"):
@@ -417,6 +432,17 @@ def extract_videos_from_html(raw_html: str) -> list[dict[str, str]]:
                 add("qq_video", f"https://v.qq.com/x/page/{vid}.html", vid=vid)
             elif src:
                 add("qq_video", src)
+
+    # 视频号卡片（服务号文章里的视频号视频）：data-url 是封面直链，直链需签名只记录；
+    # 附带频道昵称，导出时方便识别
+    for card in soup.find_all("mp-common-videosnap"):
+        if not isinstance(card, Tag):
+            continue
+        url = str(card.get("data-url") or "").strip()
+        if not url:
+            continue
+        nick = str(card.get("data-nickname") or "").strip()
+        add("finder", url, title=nick or "")
 
     # 兜底：真实文章常把视频 URL 藏在 <script>/属性里，直接扫原始 HTML
     for m in re.finditer("https?://mpvideo\\.qpic\\.cn/[^\\s\"'<>]+", raw_html, re.I):
@@ -954,8 +980,12 @@ def article_to_docx(art: dict[str, Any]) -> bytes:
             target = str(v.get("local_path") or v.get("url") or "").strip()
             if not target:
                 continue
+            label = ""
+            if v.get("kind") == "finder":
+                nick = str(v.get("title") or "").strip()
+                label = f"视频号（{nick}）：" if nick else "视频号："
             p2 = doc.add_paragraph()
-            _docx_add_hyperlink(p2, str(v.get("url") or target), target)
+            _docx_add_hyperlink(p2, str(v.get("url") or target), f"{label}{target}")
             for run in p2.runs:
                 _set_run_font(run, size=10, color="0563C1")
 
