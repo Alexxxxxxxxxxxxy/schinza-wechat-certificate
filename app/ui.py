@@ -2176,7 +2176,7 @@ class CertificateApp(ctk.CTk):
 
     def refresh_batch_account_checks(self, *, reset_default: bool = False) -> None:
         rows = self._batch_account_rows()
-        valid = {r["id"] for r in rows}
+        valid = {r["id"] for r in rows if r["active"]}
         if reset_default:
             self._batch_selected = set(default_selected_ids(rows))
         else:
@@ -2762,7 +2762,7 @@ class CertificateApp(ctk.CTk):
             return
         self.refresh_history_account_options()
         rows = self._batch_account_rows()
-        chosen = [r for r in rows if r["id"] in self._batch_selected]
+        chosen = [r for r in rows if r["id"] in self._batch_selected and r["active"]]
         if not chosen:
             self.set_hist_status("请先勾选至少一个有效凭证公众号。", ok=False)
             return
@@ -2837,6 +2837,9 @@ class CertificateApp(ctk.CTk):
         if group is None:
             self._history_articles = []
             self._history_account_name = ""
+            self._history_selected.clear()
+            self._history_cred = {}
+            self._render_history_list()
             return
         self._history_articles = list(group.get("articles") or [])
         self._history_account_name = str(group.get("name") or "")
