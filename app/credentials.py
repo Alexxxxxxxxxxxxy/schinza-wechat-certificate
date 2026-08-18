@@ -8,7 +8,16 @@ from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
 
 REQUIRED = ("__biz", "uin", "key")
-OPTIONAL = ("pass_ticket", "appmsg_token", "wxtoken")
+OPTIONAL = (
+    "pass_ticket",
+    "appmsg_token",
+    "wxtoken",
+    "user_agent",
+    "devicetype",
+    "clientversion",
+    "slave_sid",
+    "data_ticket",
+)
 ALL_KEYS = REQUIRED + OPTIONAL
 
 _URL_RE = re.compile(r"https?://mp\.weixin\.qq\.com/[^\s\"'<>]+", re.I)
