@@ -1191,6 +1191,48 @@ def extension_for_article_format(fmt: str) -> str:
     return "md"
 
 
+_ISO_LIKE_ENCODINGS = {
+    "iso-8859-1",
+    "latin-1",
+    "latin1",
+    "ascii",
+    "us-ascii",
+    "cp1252",
+}
+
+
+def _detect_response_encoding(resp: requests.Response) -> str:
+    """决定响应解码编码：优先服务器声明的 charset，其次 <meta charset>，最后探测。
+
+    微信文章页恒为 UTF-8 且 Content-Type 声明 charset=UTF-8；
+    而 charset_normalizer 的 apparent_encoding 对部分页面会误判（如 utf-8 <-> cp775），
+    所以不能让它覆盖服务器声明。
+    """
+    enc = str(resp.encoding or "").strip()
+    low = enc.lower().replace("_", "-")
+    if low and low not in _ISO_LIKE_ENCODINGS:
+        return enc
+    head = resp.content[:4096]
+    m = re.search(rb'<meta[^>]+charset=["\']?\s*([A-Za-z0-9_\-]+)', head, re.I)
+    if m:
+        try:
+            return m.group(1).decode("ascii")
+        except Exception:
+            pass
+    return resp.apparent_encoding or "utf-8"
+
+
+def _looks_mojibake(text: str, resp: requests.Response) -> bool:
+    """替换字符（U+FFFD）过多时判定为乱码，尝试按 UTF-8 重解。"""
+    if text.count("\ufffd") <= 4:
+        return False
+    try:
+        alt = resp.content.decode("utf-8", errors="replace")
+    except Exception:
+        return False
+    return alt.count("\ufffd") < text.count("\ufffd")
+
+
 def fetch_article_html(
     url: str,
     *,
@@ -1226,8 +1268,11 @@ def fetch_article_html(
         try:
             resp = sess.get(url, headers=headers, cookies=cookies, timeout=timeout)
             resp.raise_for_status()
-            resp.encoding = resp.apparent_encoding or resp.encoding or "utf-8"
-            return resp.text
+            resp.encoding = _detect_response_encoding(resp)
+            text = resp.text
+            if _looks_mojibake(text, resp):
+                text = resp.content.decode("utf-8", errors="replace")
+            return text
         except (requests.Timeout, requests.ConnectionError) as exc:
             last_exc = exc
             if attempt < retries:
