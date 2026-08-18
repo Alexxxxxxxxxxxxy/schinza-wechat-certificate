@@ -274,6 +274,10 @@ class AccountCard(ctk.CTkFrame):
             self.copy_btn.configure(state="disabled")
 
 
+# 列表单次最多渲染的卡片数：防止文章过多时重建全部卡片卡死/耗尽 Tk 菜单资源
+MAX_HISTORY_CARDS = 200
+
+
 class CertificateApp(ctk.CTk):
     def __init__(self, root_dir: Path) -> None:
         super().__init__()
@@ -302,6 +306,7 @@ class CertificateApp(ctk.CTk):
         self._article_exporting = False
         self._batch_exporting = False
         self._history_selected: set[str] = set()
+        self._history_card_vars: dict[str, ctk.BooleanVar] = {}
         self._account_options: list[tuple[str, str]] = []  # (label, id)
         self._history_account_id: str | None = None
         self._nav_btns: dict[str, ctk.CTkButton] = {}
@@ -2634,13 +2639,24 @@ class CertificateApp(ctk.CTk):
         self._history_selected = {
             self._article_key(a) for a in self._history_articles if self._article_key(a)
         }
-        self._render_history_list()
+        for k, var in self._history_card_vars.items():
+            var.set(k in self._history_selected)
         self.set_hist_status(f"已全选 {len(self._history_selected)} 篇", ok=True)
 
     def clear_history_selection(self) -> None:
         self._history_selected.clear()
-        self._render_history_list()
+        for var in self._history_card_vars.values():
+            var.set(False)
         self.set_hist_status("已取消选择", ok=True)
+
+    def _export_article_current_fmt(self, art: dict[str, Any]) -> None:
+        """单篇导出：用全局格式下拉框当前值，避免每卡片一个下拉框耗尽 Tk 菜单资源。"""
+        fmt = format_key_for_article_label(
+            self.article_fmt_menu.get()
+            if hasattr(self, "article_fmt_menu")
+            else "Markdown"
+        )
+        self.export_article(art, fmt=fmt)
 
     def _toggle_history_select(self, key: str, checked: bool) -> None:
         if not key:
@@ -2653,6 +2669,7 @@ class CertificateApp(ctk.CTk):
     def _render_history_list(self) -> None:
         for child in self.hist_list.winfo_children():
             child.destroy()
+        self._history_card_vars.clear()
         if not self._history_articles:
             ctk.CTkLabel(
                 self.hist_list,
@@ -2661,7 +2678,28 @@ class CertificateApp(ctk.CTk):
                 font=ctk.CTkFont(family=UI_FONT, size=13),
             ).grid(row=0, column=0, pady=40)
             return
-        for i, art in enumerate(self._history_articles):
+        total = len(self._history_articles)
+        shown = min(total, MAX_HISTORY_CARDS)
+        if total > shown:
+            banner = ctk.CTkFrame(
+                self.hist_list,
+                fg_color=COLORS["panel"],
+                corner_radius=10,
+                border_width=1,
+                border_color=COLORS["warn"],
+            )
+            banner.grid(row=0, column=0, sticky="ew", pady=(0, 12))
+            ctk.CTkLabel(
+                banner,
+                text=f"共 {total} 篇，列表仅显示前 {shown} 篇。全选/批量导出包含全部；"
+                "可缩小日期范围查看更早文章。",
+                text_color=COLORS["text"],
+                font=ctk.CTkFont(family=UI_FONT, size=12),
+                anchor="w",
+                justify="left",
+                wraplength=720,
+            ).pack(fill="x", padx=14, pady=10)
+        for i, art in enumerate(self._history_articles[:shown]):
             card = ctk.CTkFrame(
                 self.hist_list,
                 fg_color=COLORS["card"],
@@ -2669,11 +2707,12 @@ class CertificateApp(ctk.CTk):
                 border_width=1,
                 border_color=COLORS["border"],
             )
-            card.grid(row=i, column=0, sticky="ew", pady=(0, 12))
+            card.grid(row=i + 1, column=0, sticky="ew", pady=(0, 12))
             card.grid_columnconfigure(1, weight=1)
 
             key = self._article_key(art)
             var = ctk.BooleanVar(value=key in self._history_selected)
+            self._history_card_vars[key] = var
             ctk.CTkCheckBox(
                 card,
                 text="",
@@ -2747,22 +2786,6 @@ class CertificateApp(ctk.CTk):
                 command=lambda u=link: self._copy_text(u, "已复制链接"),
             ).pack(side="left", padx=(0, 12))
 
-            fmt_menu = ctk.CTkOptionMenu(
-                actions,
-                values=ARTICLE_EXPORT_LABELS,
-                width=110,
-                height=30,
-                corner_radius=8,
-                fg_color=COLORS["bg"],
-                button_color=COLORS["border"],
-                button_hover_color="#3a4a5e",
-                text_color=COLORS["text"],
-                font=ctk.CTkFont(family=UI_FONT, size=12),
-                dropdown_font=ctk.CTkFont(family=UI_FONT, size=12),
-            )
-            fmt_menu.set(self.article_fmt_menu.get() if hasattr(self, "article_fmt_menu") else "Markdown")
-            fmt_menu.pack(side="left", padx=(0, 12))
-
             ctk.CTkButton(
                 actions,
                 text="导出",
@@ -2771,9 +2794,7 @@ class CertificateApp(ctk.CTk):
                 corner_radius=8,
                 fg_color=COLORS["border"],
                 hover_color="#3a4a5e",
-                command=lambda a=art, m=fmt_menu: self.export_article(
-                    a, fmt=format_key_for_article_label(m.get())
-                ),
+                command=lambda a=art: self._export_article_current_fmt(a),
             ).pack(side="left")
 
     def _copy_text(self, text: str, ok_msg: str) -> None:
