@@ -26,8 +26,15 @@ REQUIRED_CRED_KEYS = ("__biz", "uin", "key")
 
 # getmsg ``count`` is number of *push messages* (推送), not articles.
 # Busy accounts may push many times/day; keep paging until date cutoff.
-DEFAULT_PAGE_COUNT = 10
+DEFAULT_PAGE_COUNT = 8
 DEFAULT_MAX_PAGES = 100
+
+DEFAULT_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 "
+    "MicroMessenger/7.0.20.1781(0x6700143B) NetType/WIFI "
+    "WindowsWechat(0x63090a13) XWEB/11275"
+)
 
 
 def _fully_unquote(value: str) -> str:
@@ -42,7 +49,19 @@ def _fully_unquote(value: str) -> str:
 
 def normalize_credentials(cred: dict[str, Any]) -> dict[str, Any]:
     out = dict(cred)
-    for k in ("__biz", "uin", "key", "pass_ticket", "appmsg_token", "wxtoken"):
+    for k in (
+        "__biz",
+        "uin",
+        "key",
+        "pass_ticket",
+        "appmsg_token",
+        "wxtoken",
+        "user_agent",
+        "devicetype",
+        "clientversion",
+        "slave_sid",
+        "data_ticket",
+    ):
         if k in out and isinstance(out[k], str):
             out[k] = _fully_unquote(out[k].strip())
     return out
@@ -390,25 +409,8 @@ def fetch_getmsg_page(
     if cred.get("appmsg_token"):
         params["appmsg_token"] = str(cred["appmsg_token"]).strip()
 
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-            "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36 "
-            "MicroMessenger/7.0.20.1781(0x6700143B) NetType/WIFI "
-            "WindowsWechat(0x63090a13) XWEB/11275"
-        ),
-        "Referer": (
-            f"https://mp.weixin.qq.com/mp/profile_ext?action=home"
-            f"&__biz={params['__biz']}&scene=124#wechat_redirect"
-        ),
-        "Accept": "application/json, text/javascript, */*; q=0.01",
-        "X-Requested-With": "XMLHttpRequest",
-    }
-    cookies: dict[str, str] = {}
-    if cred.get("pass_ticket"):
-        cookies["pass_ticket"] = str(cred["pass_ticket"]).strip()
-    if cred.get("uin"):
-        cookies["wxuin"] = str(cred["uin"]).strip()
+    headers = build_getmsg_headers(cred, biz=params["__biz"])
+    cookies = build_getmsg_cookies(cred)
 
     sess = session or requests.Session()
     # Bypass system MITM proxy — talk to WeChat directly.
@@ -573,10 +575,57 @@ def merge_articles_with_sightings(
     return merged
 
 
-def _rate_limit_hint(err: str) -> str:
-    """返回限流提示（微信风控/操作频繁时），否则空串。"""
+def is_rate_limit_error(err: str) -> bool:
     low = (err or "").lower()
-    if any(k in low for k in ("freq", "频繁", "操作频繁", "unknownerror", "风控", "invalid session")):
+    return any(
+        k in low
+        for k in ("freq", "频繁", "操作频繁", "unknownerror", "风控")
+    )
+
+
+def classify_stopped_reason(
+    err: str, *, cancelled: bool = False, ok: bool = False
+) -> str:
+    if cancelled:
+        return "cancelled"
+    if ok:
+        return "completed"
+    if is_rate_limit_error(err):
+        return "rate_limited"
+    low = (err or "").lower()
+    if any(k in low for k in ("invalid", "失效", "过期", "缺少字段")):
+        return "expired"
+    return "network"
+
+
+def build_getmsg_headers(cred: dict[str, Any], *, biz: str) -> dict[str, str]:
+    ua = str(cred.get("user_agent") or "").strip() or DEFAULT_UA
+    return {
+        "User-Agent": ua,
+        "Referer": (
+            f"https://mp.weixin.qq.com/mp/profile_ext?action=home"
+            f"&__biz={biz}&scene=124#wechat_redirect"
+        ),
+        "Accept": "application/json, text/javascript, */*; q=0.01",
+        "X-Requested-With": "XMLHttpRequest",
+    }
+
+
+def build_getmsg_cookies(cred: dict[str, Any]) -> dict[str, str]:
+    cookies: dict[str, str] = {}
+    if cred.get("pass_ticket"):
+        cookies["pass_ticket"] = str(cred["pass_ticket"]).strip()
+    if cred.get("uin"):
+        cookies["wxuin"] = str(cred["uin"]).strip()
+    if cred.get("slave_sid"):
+        cookies["slave_sid"] = str(cred["slave_sid"]).strip()
+    if cred.get("data_ticket"):
+        cookies["data_ticket"] = str(cred["data_ticket"]).strip()
+    return cookies
+
+
+def _rate_limit_hint(err: str) -> str:
+    if is_rate_limit_error(err):
         return "（疑似被微信限流：建议暂停几分钟，降低拉取频率后再试）"
     return ""
 
@@ -587,10 +636,10 @@ def fetch_history_days(
     days: int | None = 7,
     max_pages: int = DEFAULT_MAX_PAGES,
     count: int = DEFAULT_PAGE_COUNT,
-    sleep_s: float = 1.5,
-    sleep_jitter: float = 0.6,
-    cooldown_every: int = 5,
-    cooldown_extra_s: float = 4.0,
+    sleep_s: float = 3.4,
+    sleep_jitter: float = 0.32,
+    cooldown_every: int = 4,
+    cooldown_extra_s: float = 10.0,
     timeout: float = 20.0,
     on_progress: ProgressCb | None = None,
     sightings: list[dict[str, Any]] | None = None,
@@ -612,7 +661,13 @@ def fetch_history_days(
     cred = normalize_credentials(cred)
     ok, err = validate_credentials(cred)
     if not ok:
-        return {"ok": False, "error": err, "articles": [], "pages": 0}
+        return {
+            "ok": False,
+            "error": err,
+            "articles": [],
+            "pages": 0,
+            "stopped_reason": classify_stopped_reason(err),
+        }
 
     cutoff: int | None = None
     upper_ts: int | None = None
@@ -661,6 +716,7 @@ def fetch_history_days(
                 "cutoff_ts": cutoff,
                 "warning": "",
                 "merged_sightings": max(0, len(partial) - len(_dedupe(articles))),
+                "stopped_reason": "cancelled",
             }
         if on_progress:
             elapsed = int(time.time() - t0)
@@ -686,6 +742,7 @@ def fetch_history_days(
             )
             err_text = page.get("error") or "getmsg 失败"
             hint = _rate_limit_hint(err_text)
+            stopped = classify_stopped_reason(err_text)
             if hint:
                 err_text += hint
             return {
@@ -697,6 +754,7 @@ def fetch_history_days(
                 "cutoff_ts": cutoff,
                 "warning": "",
                 "merged_sightings": max(0, len(partial) - len(_dedupe(articles))),
+                "stopped_reason": stopped,
             }
 
         batch = page.get("articles") or []
@@ -822,4 +880,5 @@ def fetch_history_days(
         "hit_page_cap": hit_page_cap,
         "merged_sightings": merged_extra,
         "__biz": biz,
+        "stopped_reason": "completed",
     }
