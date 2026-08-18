@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from app.mitm_addon import extract_request_fingerprint
+from app.mitm_addon import CredentialCapture, extract_request_fingerprint
 from app.mitm_capture import MitmCaptureService
 
 
@@ -40,6 +40,53 @@ class ExtractFingerprintTests(unittest.TestCase):
 
     def test_missing_headers_returns_empty(self):
         self.assertEqual(extract_request_fingerprint("", None), {})
+
+
+class _Req:
+    def __init__(self, url, headers):
+        self.pretty_url = url
+        self.headers = headers
+
+
+class _Flow:
+    def __init__(self, url, headers):
+        self.request = _Req(url, headers)
+
+
+class CredentialCaptureWriteTests(unittest.TestCase):
+    def test_fingerprint_only_merge_triggers_second_inbox_write(self):
+        base_url = (
+            "https://mp.weixin.qq.com/mp/profile_ext?action=getmsg"
+            "&__biz=MzA%3D&uin=123&key=abc&pass_ticket=pt"
+        )
+        with tempfile.TemporaryDirectory() as td:
+            inbox = Path(td) / "capture_inbox.jsonl"
+            with patch("app.mitm_addon._inbox", return_value=inbox):
+                cap = CredentialCapture()
+                cap.request(_Flow(base_url, _Hdr({})))
+                self.assertTrue(inbox.is_file())
+                rows = [
+                    json.loads(line)
+                    for line in inbox.read_text(encoding="utf-8").splitlines()
+                    if line.strip()
+                ]
+                self.assertEqual(len(rows), 1)
+                self.assertNotIn("user_agent", rows[0])
+
+                cap.request(
+                    _Flow(
+                        base_url,
+                        _Hdr({"User-Agent": "WindowsWechat UA"}),
+                    )
+                )
+                rows = [
+                    json.loads(line)
+                    for line in inbox.read_text(encoding="utf-8").splitlines()
+                    if line.strip()
+                ]
+                self.assertEqual(len(rows), 2)
+                self.assertEqual(rows[1]["user_agent"], "WindowsWechat UA")
+                self.assertEqual(rows[1]["__biz"], "MzA=")
 
 
 class InboxReaderTests(unittest.TestCase):

@@ -17,6 +17,8 @@ from urllib.parse import parse_qs, unquote, urlparse
 KEYS = ("__biz", "uin", "key", "pass_ticket", "appmsg_token")
 FINGERPRINT_QUERY_KEYS = ("devicetype", "clientversion", "wxtoken")
 FINGERPRINT_COOKIE_KEYS = ("slave_sid", "data_ticket")
+FINGERPRINT_KEYS = ("user_agent",) + FINGERPRINT_QUERY_KEYS + FINGERPRINT_COOKIE_KEYS
+SAVED_FP_KEYS = KEYS + FINGERPRINT_KEYS
 INTERESTING_HOSTS = ("mp.weixin.qq.com",)
 
 
@@ -166,17 +168,9 @@ def _effective_biz(url: str, headers) -> str:
 def _save(cred: dict[str, str]) -> None:
     path = _inbox()
     path.parent.mkdir(parents=True, exist_ok=True)
-    extra = (
-        "user_agent",
-        "devicetype",
-        "clientversion",
-        "wxtoken",
-        "slave_sid",
-        "data_ticket",
-    )
     payload = {
         **{k: cred.get(k, "") for k in KEYS},
-        **{k: cred[k] for k in extra if cred.get(k)},
+        **{k: cred[k] for k in FINGERPRINT_KEYS if cred.get(k)},
         "captured_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "source": "mitm",
     }
@@ -497,7 +491,7 @@ class CredentialCapture:
             return
         # Write on merge change, or when this URL carries a full set and
         # inbox was cleared (renew / new wait) — but don't spam identical writes.
-        fp = tuple(bucket.get(k, "") for k in KEYS)
+        fp = tuple(bucket.get(k, "") for k in SAVED_FP_KEYS)
         inbox_missing = not _inbox().is_file()
         should_write = False
         if changed and fp != self._last_saved_fp.get(biz):
