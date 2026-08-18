@@ -161,13 +161,20 @@ class MitmCaptureService:
                 continue
             if not (data.get("__biz") and data.get("uin") and data.get("key")):
                 continue
-            creds.append(
-                {
-                    k: str(data.get(k) or "")
-                    for k in ("__biz", "uin", "key", "pass_ticket", "appmsg_token")
-                    if data.get(k)
-                }
+            keep = (
+                "__biz",
+                "uin",
+                "key",
+                "pass_ticket",
+                "appmsg_token",
+                "wxtoken",
+                "user_agent",
+                "devicetype",
+                "clientversion",
+                "slave_sid",
+                "data_ticket",
             )
+            creds.append({k: str(data.get(k) or "") for k in keep if data.get(k)})
         if consume:
             self._inbox_offset = size
         return creds

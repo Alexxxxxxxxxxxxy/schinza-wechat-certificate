@@ -15,6 +15,8 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
 KEYS = ("__biz", "uin", "key", "pass_ticket", "appmsg_token")
+FINGERPRINT_QUERY_KEYS = ("devicetype", "clientversion", "wxtoken")
+FINGERPRINT_COOKIE_KEYS = ("slave_sid", "data_ticket")
 INTERESTING_HOSTS = ("mp.weixin.qq.com",)
 
 
@@ -66,6 +68,40 @@ def _merge_from_url(url: str, into: dict[str, str]) -> bool:
             into[k] = v
             changed = True
     return changed
+
+
+def extract_request_fingerprint(url: str, headers) -> dict[str, str]:
+    """Pull UA / device fields / extra WeChat cookies from one MP request."""
+    out: dict[str, str] = {}
+    if headers is not None:
+        try:
+            ua = headers.get("User-Agent", "") or ""
+        except Exception:
+            ua = ""
+        if str(ua).strip():
+            out["user_agent"] = str(ua).strip()
+        try:
+            cookie = headers.get("Cookie", "") or ""
+        except Exception:
+            cookie = ""
+        for part in str(cookie).split(";"):
+            part = part.strip()
+            if "=" not in part:
+                continue
+            k, _, v = part.partition("=")
+            k = k.strip()
+            if k in FINGERPRINT_COOKIE_KEYS and v.strip():
+                out[k] = unquote(v.strip())
+    if url:
+        try:
+            q = parse_qs(urlparse(url).query)
+        except Exception:
+            q = {}
+        for k in FINGERPRINT_QUERY_KEYS:
+            vals = q.get(k) or []
+            if vals and vals[0]:
+                out[k] = unquote(vals[0])
+    return {k: v for k, v in out.items() if v}
 
 
 def _merge_from_cookie(cookie_header: str, into: dict[str, str]) -> bool:
@@ -130,8 +166,17 @@ def _effective_biz(url: str, headers) -> str:
 def _save(cred: dict[str, str]) -> None:
     path = _inbox()
     path.parent.mkdir(parents=True, exist_ok=True)
+    extra = (
+        "user_agent",
+        "devicetype",
+        "clientversion",
+        "wxtoken",
+        "slave_sid",
+        "data_ticket",
+    )
     payload = {
         **{k: cred.get(k, "") for k in KEYS},
+        **{k: cred[k] for k in extra if cred.get(k)},
         "captured_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "source": "mitm",
     }
@@ -430,6 +475,10 @@ class CredentialCapture:
         bucket.setdefault("__biz", biz)
         changed = _merge_from_url(url, bucket)
         changed = _merge_from_cookie(cookie, bucket) or changed
+        fp = extract_request_fingerprint(url, headers)
+        if fp:
+            bucket.update(fp)
+            changed = True
 
         # Enrich the sighting with the now-known __biz (short links lack it).
         if sighting and not sighting.get("__biz") and bucket.get("__biz"):
