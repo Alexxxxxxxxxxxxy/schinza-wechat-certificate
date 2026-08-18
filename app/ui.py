@@ -49,6 +49,14 @@ from app.credentials import (
     normalize_credentials,
 )
 from app.history_account_select import pick_label_for_account_id, resolve_account_id
+from app.history_batch import fetch_history_batch
+from app.history_batch_ui import (
+    default_selected_ids,
+    format_batch_progress,
+    format_batch_summary,
+    group_status_color_key,
+    group_status_label,
+)
 from app.history_client import describe_exception, fetch_history_days
 from app.history_export import (
     FORMAT_LABELS,
@@ -309,6 +317,12 @@ class CertificateApp(ctk.CTk):
         self._history_card_vars: dict[str, ctk.BooleanVar] = {}
         self._account_options: list[tuple[str, str]] = []  # (label, id)
         self._history_account_id: str | None = None
+        self._batch_selected: set[str] = set()
+        self._batch_check_vars: dict[str, ctk.BooleanVar] = {}
+        self._history_groups: list[dict[str, Any]] = []
+        self._history_active_group_id: str | None = None
+        self._batch_fetching = False
+        self._batch_checks_ready = False
         self._nav_btns: dict[str, ctk.CTkButton] = {}
         self._updating = False
         self._sync_rows: list[dict[str, Any]] = []
@@ -365,6 +379,7 @@ class CertificateApp(ctk.CTk):
         self._build_add_form()
         self._build_list()
         self._build_history_panel()
+        self.refresh_batch_account_checks(reset_default=True)
         self._build_sync_panel()
         self._build_footer()
 
@@ -542,6 +557,8 @@ class CertificateApp(ctk.CTk):
             self.sync_view.grid_remove()
             self.hist_view.grid(row=0, column=0, sticky="nsew")
             self.refresh_history_account_options()
+            self.refresh_batch_account_checks(reset_default=not self._batch_checks_ready)
+            self._batch_checks_ready = True
         elif tab == "sync":
             self.cred_view.grid_remove()
             self.hist_view.grid_remove()
@@ -869,6 +886,40 @@ class CertificateApp(ctk.CTk):
         )
         self.hist_fetch_btn.grid(row=2, column=3, sticky="e", padx=(0, 18), pady=6)
 
+        self.batch_pick_frame = ctk.CTkScrollableFrame(
+            panel,
+            fg_color=COLORS["card"],
+            height=120,
+            corner_radius=10,
+        )
+        self.batch_pick_frame.grid(
+            row=3, column=0, columnspan=4, sticky="ew", padx=18, pady=(4, 4)
+        )
+        self.batch_pick_frame.grid_columnconfigure(0, weight=1)
+
+        batch_pick_tools = ctk.CTkFrame(panel, fg_color="transparent")
+        batch_pick_tools.grid(
+            row=4, column=0, columnspan=4, sticky="ew", padx=18, pady=(0, 4)
+        )
+        ctk.CTkButton(
+            batch_pick_tools, text="全选有效", width=88, height=32,
+            corner_radius=8, fg_color=COLORS["border"], hover_color="#3a4a5e",
+            command=self.select_all_batch_accounts,
+        ).pack(side="left", padx=(0, 10))
+        ctk.CTkButton(
+            batch_pick_tools, text="清空", width=64, height=32,
+            corner_radius=8, fg_color=COLORS["border"], hover_color="#3a4a5e",
+            command=self.clear_batch_account_selection,
+        ).pack(side="left", padx=(0, 10))
+        self.hist_batch_btn = ctk.CTkButton(
+            batch_pick_tools, text="批量拉取", width=96, height=32,
+            corner_radius=8, fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"], text_color="#052e16",
+            font=ctk.CTkFont(family=UI_FONT, size=12, weight="bold"),
+            command=self.start_history_batch_fetch,
+        )
+        self.hist_batch_btn.pack(side="left")
+
         self.hist_status = ctk.CTkLabel(
             panel,
             text="请选择公众号与时间范围后点击拉取。",
@@ -878,10 +929,10 @@ class CertificateApp(ctk.CTk):
             justify="left",
             wraplength=720,
         )
-        self.hist_status.grid(row=3, column=0, columnspan=4, sticky="ew", padx=18, pady=(8, 4))
+        self.hist_status.grid(row=5, column=0, columnspan=4, sticky="ew", padx=18, pady=(8, 4))
 
         list_tools = ctk.CTkFrame(panel, fg_color="transparent")
-        list_tools.grid(row=4, column=0, columnspan=4, sticky="ew", padx=18, pady=(4, 8))
+        list_tools.grid(row=6, column=0, columnspan=4, sticky="ew", padx=18, pady=(4, 8))
 
         ctk.CTkLabel(
             list_tools,
@@ -953,7 +1004,7 @@ class CertificateApp(ctk.CTk):
         ).pack(side="left")
 
         batch_tools = ctk.CTkFrame(panel, fg_color="transparent")
-        batch_tools.grid(row=5, column=0, columnspan=4, sticky="ew", padx=18, pady=(0, 16))
+        batch_tools.grid(row=7, column=0, columnspan=4, sticky="ew", padx=18, pady=(0, 16))
 
         ctk.CTkLabel(
             batch_tools,
@@ -1047,7 +1098,7 @@ class CertificateApp(ctk.CTk):
         list_wrap = ctk.CTkFrame(self.hist_view, fg_color="transparent")
         list_wrap.grid(row=1, column=0, sticky="nsew", padx=20, pady=(0, 8))
         list_wrap.grid_columnconfigure(0, weight=1)
-        list_wrap.grid_rowconfigure(1, weight=1)
+        list_wrap.grid_rowconfigure(2, weight=1)
 
         ctk.CTkLabel(
             list_wrap,
@@ -1057,12 +1108,14 @@ class CertificateApp(ctk.CTk):
             anchor="w",
         ).grid(row=0, column=0, sticky="w", pady=(0, 10))
 
+        self.hist_groups = ctk.CTkFrame(list_wrap, fg_color="transparent")
+        self.hist_groups.grid(row=1, column=0, sticky="ew", pady=(0, 8))
         self.hist_list = ctk.CTkScrollableFrame(
             list_wrap,
             fg_color=COLORS["bg"],
             corner_radius=12,
         )
-        self.hist_list.grid(row=1, column=0, sticky="nsew")
+        self.hist_list.grid(row=2, column=0, sticky="nsew")
         self.hist_list.grid_columnconfigure(0, weight=1)
 
     def _build_sync_panel(self) -> None:
@@ -2104,6 +2157,77 @@ class CertificateApp(ctk.CTk):
 
     # ── history tab ───────────────────────────────────────────────────
 
+    def _batch_account_rows(self) -> list[dict[str, Any]]:
+        self.store.mark_expired_if_needed()
+        rows: list[dict[str, Any]] = []
+        for row in self.store.list_accounts():
+            aid = str(row.get("id") or "")
+            cred = row.get("credentials") or {}
+            active = self.store.is_active(aid)
+            rows.append(
+                {
+                    "id": aid,
+                    "name": row.get("name") or "未命名公众号",
+                    "credentials": cred,
+                    "active": active,
+                }
+            )
+        return rows
+
+    def refresh_batch_account_checks(self, *, reset_default: bool = False) -> None:
+        rows = self._batch_account_rows()
+        valid = {r["id"] for r in rows}
+        if reset_default:
+            self._batch_selected = set(default_selected_ids(rows))
+        else:
+            self._batch_selected &= valid
+        for child in self.batch_pick_frame.winfo_children():
+            child.destroy()
+        self._batch_check_vars.clear()
+        if not rows:
+            ctk.CTkLabel(
+                self.batch_pick_frame,
+                text="还没有公众号。请先在凭证管理里添加并抓包。",
+                text_color=COLORS["muted"],
+            ).grid(row=0, column=0, sticky="w", padx=8, pady=8)
+            return
+        for i, row in enumerate(rows):
+            aid = row["id"]
+            label = str(row["name"])
+            if not row["active"]:
+                label += "（请续约）"
+            var = ctk.BooleanVar(value=aid in self._batch_selected and row["active"])
+            self._batch_check_vars[aid] = var
+
+            def _toggle(v=var, account_id=aid, is_active=row["active"]) -> None:
+                if not is_active:
+                    v.set(False)
+                    self._batch_selected.discard(account_id)
+                    return
+                if v.get():
+                    self._batch_selected.add(account_id)
+                else:
+                    self._batch_selected.discard(account_id)
+
+            box = ctk.CTkCheckBox(
+                self.batch_pick_frame,
+                text=label,
+                variable=var,
+                state="normal" if row["active"] else "disabled",
+                command=_toggle,
+                text_color=COLORS["text"] if row["active"] else COLORS["muted"],
+                font=ctk.CTkFont(family=UI_FONT, size=12),
+            )
+            box.grid(row=i, column=0, sticky="w", padx=8, pady=2)
+
+    def select_all_batch_accounts(self) -> None:
+        self._batch_selected = set(default_selected_ids(self._batch_account_rows()))
+        self.refresh_batch_account_checks()
+
+    def clear_batch_account_selection(self) -> None:
+        self._batch_selected.clear()
+        self.refresh_batch_account_checks()
+
     def refresh_history_account_options(self) -> None:
         active = self.store.list_active_accounts()
         prev_label = self.hist_account_menu.get()
@@ -2121,6 +2245,7 @@ class CertificateApp(ctk.CTk):
             self._history_account_id = None
             self.hist_account_menu.configure(values=labels)
             self.hist_account_menu.set(labels[0])
+            self.refresh_batch_account_checks()
             return
         keep_id = resolve_account_id(
             options,
@@ -2134,6 +2259,7 @@ class CertificateApp(ctk.CTk):
         )
         self.hist_account_menu.configure(values=labels)
         self.hist_account_menu.set(chosen)
+        self.refresh_batch_account_checks()
 
     def _on_hist_account_change(self, value: str) -> None:
         for lb, aid in self._account_options:
@@ -2550,9 +2676,13 @@ class CertificateApp(ctk.CTk):
         self._history_fetching = True
         self._history_cancel = False
         self._history_cred = cred
+        self._history_groups = []
+        self._history_active_group_id = None
+        self._render_history_groups()
         self.hist_fetch_btn.configure(
             state="normal", text="取消拉取", command=self.cancel_history_fetch
         )
+        self.hist_batch_btn.configure(state="disabled")
         name = str(row.get("name") or "")
         biz = str(cred.get("__biz") or row.get("biz") or "").strip()
         self.sightings.load()
@@ -2586,9 +2716,16 @@ class CertificateApp(ctk.CTk):
 
     def _on_history_done(self, account_name: str, result: dict[str, Any]) -> None:
         self._history_fetching = False
+        self._batch_fetching = False
         self.hist_fetch_btn.configure(
             state="normal", text=self._fetch_btn_label(), command=self.start_history_fetch
         )
+        self.hist_batch_btn.configure(
+            state="normal", text="批量拉取", command=self.start_history_batch_fetch
+        )
+        self._history_groups = []
+        self._history_active_group_id = None
+        self._render_history_groups()
         if result.get("cancelled"):
             self.set_hist_status(
                 f"已取消拉取（已展示部分结果 {len(list(result.get('articles') or []))} 篇）",
@@ -2619,6 +2756,130 @@ class CertificateApp(ctk.CTk):
         if warn:
             msg = f"{msg} · {warn}"
         self.set_hist_status(msg, ok=True)
+
+    def start_history_batch_fetch(self) -> None:
+        if self._history_fetching:
+            return
+        self.refresh_history_account_options()
+        rows = self._batch_account_rows()
+        chosen = [r for r in rows if r["id"] in self._batch_selected]
+        if not chosen:
+            self.set_hist_status("请先勾选至少一个有效凭证公众号。", ok=False)
+            return
+        self._history_fetching = True
+        self._batch_fetching = True
+        self._history_cancel = False
+        self.hist_fetch_btn.configure(state="disabled")
+        self.hist_batch_btn.configure(
+            state="normal", text="取消", command=self.cancel_history_fetch
+        )
+        self.set_hist_status(
+            format_batch_progress(1, len(chosen), chosen[0]["name"], "准备中…"),
+            ok=True,
+        )
+
+        start_ts = end_ts = None
+        if self._history_range_iso:
+            start_ts = _iso_date_to_ts(self._history_range_iso[0])
+            end_ts = _iso_date_to_ts(self._history_range_iso[1], end_of_day=True)
+        self.sightings.load()
+
+        def worker() -> None:
+            def progress(i: int, n: int, name: str, msg: str) -> None:
+                text = format_batch_progress(i, n, name, msg)
+                self.after(0, lambda t=text: self.set_hist_status(t, ok=True))
+
+            try:
+                result = fetch_history_batch(
+                    chosen,
+                    days=self._history_days,
+                    start_ts=start_ts,
+                    end_ts=end_ts,
+                    on_progress=progress,
+                    should_cancel=lambda: self._history_cancel,
+                    sightings_for=self.sightings.list_for_biz,
+                )
+            except Exception as exc:  # noqa: BLE001
+                result = {
+                    "ok": False,
+                    "cancelled": False,
+                    "groups": [],
+                    "summary": {"articles": 0},
+                    "error": describe_exception(exc),
+                }
+            self.after(0, lambda: self._on_history_batch_done(result))
+
+        threading.Thread(target=worker, name="schinza-history-batch", daemon=True).start()
+
+    def _on_history_batch_done(self, result: dict[str, Any]) -> None:
+        self._history_fetching = False
+        self._batch_fetching = False
+        self.hist_fetch_btn.configure(
+            state="normal", text=self._fetch_btn_label(), command=self.start_history_fetch
+        )
+        self.hist_batch_btn.configure(
+            state="normal", text="批量拉取", command=self.start_history_batch_fetch
+        )
+        groups = list(result.get("groups") or [])
+        self._history_groups = groups
+        first = next((g for g in groups if g.get("articles")), groups[0] if groups else None)
+        self._history_active_group_id = first.get("account_id") if first else None
+        self._apply_active_group_articles()
+        self._render_history_groups()
+        if result.get("error") and not groups:
+            self.set_hist_status(f"批量拉取失败：{result['error']}", ok=False)
+            return
+        self.set_hist_status(format_batch_summary(result.get("summary") or {}), ok=True)
+
+    def _apply_active_group_articles(self) -> None:
+        gid = self._history_active_group_id
+        group = next((g for g in self._history_groups if g.get("account_id") == gid), None)
+        if group is None:
+            self._history_articles = []
+            self._history_account_name = ""
+            return
+        self._history_articles = list(group.get("articles") or [])
+        self._history_account_name = str(group.get("name") or "")
+        row = self.store.get(str(group.get("account_id") or ""))
+        cred = dict((row or {}).get("credentials") or {})
+        if not cred.get("__biz") and row and row.get("biz"):
+            cred["__biz"] = row["biz"]
+        self._history_cred = cred
+        self._history_selected.clear()
+        self._render_history_list()
+
+    def _render_history_groups(self) -> None:
+        for child in self.hist_groups.winfo_children():
+            child.destroy()
+        if not self._history_groups:
+            return
+        for g in self._history_groups:
+            aid = str(g.get("account_id") or "")
+            selected = aid == self._history_active_group_id
+            color_key = group_status_color_key(str(g.get("status") or ""))
+            border = COLORS["accent"] if selected else COLORS[color_key] if color_key in COLORS else COLORS["border"]
+            btn = ctk.CTkButton(
+                self.hist_groups,
+                text=(
+                    f"{g.get('name')} · {len(g.get('articles') or [])} 篇 · "
+                    f"{group_status_label(str(g.get('status') or ''), len(g.get('articles') or []), str(g.get('error') or ''))}"
+                ),
+                height=30,
+                corner_radius=8,
+                fg_color=COLORS["card"],
+                hover_color="#3a4a5e",
+                border_width=1,
+                border_color=border,
+                text_color=COLORS["text"],
+                font=ctk.CTkFont(family=UI_FONT, size=12),
+                command=lambda account_id=aid: self._select_history_group(account_id),
+            )
+            btn.pack(side="left", padx=(0, 8), pady=2)
+
+    def _select_history_group(self, account_id: str) -> None:
+        self._history_active_group_id = account_id
+        self._apply_active_group_articles()
+        self._render_history_groups()
 
     def _render_history_text(self) -> tuple[str, str]:
         """Return (format_label, rendered text)."""
