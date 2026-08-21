@@ -1,7 +1,11 @@
+import tempfile
 import unittest
+from pathlib import Path
+
 from app.article_reader import (
     CSV_COLUMNS,
     article_to_csv_row,
+    batch_export_articles,
     format_csv_video_columns,
     parse_wechat_article_html,
     resolve_csv_digest,
@@ -79,6 +83,45 @@ class CsvRowTests(unittest.TestCase):
         )
         parsed = parse_wechat_article_html(html)
         self.assertEqual(parsed.get("og_description"), "OG摘要")
+
+
+class BatchCsvMergeTests(unittest.TestCase):
+    def test_one_file_uses_history_digest(self):
+        def fake_fetch(url, cred=None):
+            return {
+                "title": "t",
+                "link": url,
+                "body_text": "x" * 10,
+                "og_description": "",
+                "videos": [],
+            }
+
+        with tempfile.TemporaryDirectory() as td:
+            out = Path(td)
+            csv_path = out / "all.csv"
+            result = batch_export_articles(
+                [
+                    {
+                        "title": "t",
+                        "link": "https://mp.weixin.qq.com/s/a",
+                        "digest": "历史摘要",
+                        "author": "张三",
+                    }
+                ],
+                out_dir=out,
+                fmt="csv",
+                fetch_article=fake_fetch,
+                csv_path=csv_path,
+                download_videos=False,
+                sleep_s=0,
+            )
+            self.assertTrue(csv_path.is_file())
+            self.assertEqual(len(result.get("written") or []), 1)
+            text = csv_path.read_text(encoding="utf-8-sig")
+            self.assertIn("历史摘要", text)
+            self.assertIn("张三", text)
+            self.assertIn("视频路径", text)
+            self.assertIn("视频链接", text)
 
 
 if __name__ == "__main__":

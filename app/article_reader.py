@@ -1175,6 +1175,10 @@ def batch_export_articles(
                 parsed["publish_ts"] = row.get("publish_ts")
             if not parsed.get("title") or parsed.get("title") == "(无标题)":
                 parsed["title"] = title or parsed.get("title")
+            if not str(parsed.get("digest") or "").strip() and row.get("digest"):
+                parsed["digest"] = str(row.get("digest") or "").strip()
+            if not str(parsed.get("author") or "").strip() and row.get("author"):
+                parsed["author"] = str(row.get("author") or "").strip()
             if download_videos:
                 parsed["videos"] = download_article_videos(parsed, out_dir, cred=cred)
             if fetch_stats:
