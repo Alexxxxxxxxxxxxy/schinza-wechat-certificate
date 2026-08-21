@@ -179,12 +179,13 @@ def parse_wechat_article_html(
     body_html = str(content) if content else ""
     body_text = _html_to_text(body_html) if body_html else _html_to_text(html_text or "")
 
-    if len(body_text) < 20:
-        og_desc = soup.find("meta", property="og:description")
-        if og_desc and og_desc.get("content"):
-            desc = str(og_desc["content"]).strip()
-            if len(desc) > len(body_text):
-                body_text = desc
+    og_description = ""
+    og_desc = soup.find("meta", property="og:description")
+    if og_desc and og_desc.get("content"):
+        og_description = str(og_desc["content"]).strip()
+
+    if len(body_text) < 20 and og_description and len(og_description) > len(body_text):
+        body_text = og_description
 
     publish_ts = _extract_publish_ts(html_text or "")
     publish_at = (
@@ -208,6 +209,7 @@ def parse_wechat_article_html(
         "link": source_url or "",
         "publish_ts": publish_ts,
         "publish_at": publish_at,
+        "og_description": og_description,
         "videos": extract_videos_from_html(html_text or body_html),
     }
 
@@ -339,23 +341,62 @@ def article_to_json(art: dict[str, Any]) -> str:
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
 
-CSV_COLUMNS = ("标题", "链接", "发布时间", "作者", "摘要", "正文", "视频", "阅读量", "在看数", "评论数")
+DIGEST_FALLBACK_CHARS = 80
+
+
+def resolve_csv_digest(
+    *,
+    history_digest: str = "",
+    og_description: str = "",
+    body_text: str = "",
+) -> str:
+    hist = (history_digest or "").strip()
+    if hist:
+        return hist
+    og = (og_description or "").strip()
+    if og:
+        return og
+    compact = re.sub(r"\s+", "", body_text or "")
+    return compact[:DIGEST_FALLBACK_CHARS]
+
+
+def format_csv_video_columns(videos: list) -> tuple[str, str]:
+    paths: list[str] = []
+    urls: list[str] = []
+    for v in videos or []:
+        if not isinstance(v, dict):
+            continue
+        lp = str(v.get("local_path") or "").strip()
+        url = str(v.get("url") or "").strip()
+        if lp:
+            paths.append(lp)
+        elif url:
+            urls.append(url)
+    return " | ".join(paths), " | ".join(urls)
+
+
+CSV_COLUMNS = (
+    "标题", "链接", "发布时间", "作者", "摘要", "正文",
+    "视频路径", "视频链接", "阅读量", "在看数", "评论数",
+)
 
 
 def article_to_csv_row(art: dict[str, Any]) -> dict[str, str]:
     """One CSV row for an article (标题/链接/时间/作者/摘要/正文)."""
+    paths, urls = format_csv_video_columns(list(art.get("videos") or []))
     return {
         "标题": str(art.get("title") or "(无标题)"),
         "链接": str(art.get("link") or ""),
         "发布时间": str(art.get("publish_at") or ""),
         "作者": str(art.get("author") or ""),
-        "摘要": str(art.get("digest") or ""),
-        "正文": str(art.get("body_text") or "").strip(),
-        "视频": " | ".join(
-            str(v.get("local_path") or v.get("url") or "")
-            for v in (art.get("videos") or [])
-            if isinstance(v, dict) and (v.get("local_path") or v.get("url"))
+        "摘要": resolve_csv_digest(
+            history_digest=str(art.get("digest") or ""),
+            og_description=str(art.get("og_description") or ""),
+            body_text=str(art.get("body_text") or ""),
         ),
+        "正文": str(art.get("body_text") or "").strip(),
+        "视频路径": paths,
+        "视频链接": urls,
         "阅读量": str((art.get("stats") or {}).get("read_num") or ""),
         "在看数": str((art.get("stats") or {}).get("like_num") or ""),
         "评论数": str((art.get("stats") or {}).get("comment_count") or ""),
