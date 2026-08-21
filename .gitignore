@@ -34,4 +34,4 @@ mitmproxy-ca-cert.cer
 
 .superpowers/*
 
-test/*
+tests/*
