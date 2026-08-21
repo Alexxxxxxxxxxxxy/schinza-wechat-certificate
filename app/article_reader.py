@@ -382,7 +382,7 @@ CSV_COLUMNS = (
 
 
 def article_to_csv_row(art: dict[str, Any]) -> dict[str, str]:
-    """One CSV row for an article (标题/链接/时间/作者/摘要/正文)."""
+    """One CSV row for an article (标题/链接/时间/作者/摘要/正文/视频路径/视频链接)."""
     paths, urls = format_csv_video_columns(list(art.get("videos") or []))
     return {
         "标题": str(art.get("title") or "(无标题)"),
@@ -1175,9 +1175,9 @@ def batch_export_articles(
                 parsed["publish_ts"] = row.get("publish_ts")
             if not parsed.get("title") or parsed.get("title") == "(无标题)":
                 parsed["title"] = title or parsed.get("title")
-            if not str(parsed.get("digest") or "").strip() and row.get("digest"):
+            if not str(parsed.get("digest") or "").strip() and str(row.get("digest") or "").strip():
                 parsed["digest"] = str(row.get("digest") or "").strip()
-            if not str(parsed.get("author") or "").strip() and row.get("author"):
+            if not str(parsed.get("author") or "").strip() and str(row.get("author") or "").strip():
                 parsed["author"] = str(row.get("author") or "").strip()
             if download_videos:
                 parsed["videos"] = download_article_videos(parsed, out_dir, cred=cred)

@@ -47,8 +47,9 @@ def test_csv_row_has_video_column() -> None:
             "videos": [{"kind": "mp4", "url": "http://mpvideo.qpic.cn/a.mp4"}],
         }
     )
-    assert "视频" in row
-    assert "a.mp4" in row["视频"]
+    assert "视频" not in row
+    assert row["视频路径"] == ""
+    assert "a.mp4" in row["视频链接"]
 
 
 class _Resp:
