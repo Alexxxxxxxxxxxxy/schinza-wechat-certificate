@@ -20,6 +20,19 @@ NAME_HEADERS = {
 }
 LINK_HEADERS = {"文章链接", "链接", "文章url", "url", "link", "article_url"}
 
+BATCH_IMPORT_HINT = "CSV / TXT · 两列「公众号,文章链接」· 逗号或 Tab · 首行可为表头"
+BATCH_IMPORT_EXAMPLE = "数模加油站,https://mp.weixin.qq.com/s/xxxxxxxx"
+BATCH_IMPORT_HELP = (
+    "文件格式：CSV 或 TXT（编码 UTF-8 或 GB18030）\n"
+    "每行一个公众号，必须两列：公众号名称 + 该号任意一篇文章链接。\n"
+    "分隔符用逗号或 Tab。首行如果是表头会自动跳过"
+    "（公众号 / 名称 / name + 文章链接 / 链接 / url）。\n"
+    "\n"
+    "示例：\n"
+    "公众号,文章链接\n"
+    f"{BATCH_IMPORT_EXAMPLE}"
+)
+
 
 @dataclass(frozen=True)
 class BatchRow:

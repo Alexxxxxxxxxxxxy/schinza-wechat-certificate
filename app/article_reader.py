@@ -56,6 +56,24 @@ def _fully_unquote(value: str) -> str:
     return s
 
 
+_SENTENCE_END = frozenset("。！？!?…")
+
+
+def _join_broken_cjk_lines(text: str) -> str:
+    """Join 1–10 char lines left by WeChat block-wrapped decorative text."""
+    lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
+    if not lines:
+        return ""
+    out = [lines[0]]
+    for ln in lines[1:]:
+        prev = out[-1]
+        if len(ln) <= 10 and prev[-1] not in _SENTENCE_END:
+            out[-1] = prev + ln
+        else:
+            out.append(ln)
+    return "\n".join(out)
+
+
 def _html_to_text(fragment: str) -> str:
     if not fragment:
         return ""
@@ -64,7 +82,7 @@ def _html_to_text(fragment: str) -> str:
         tag.decompose()
     text = soup.get_text("\n", strip=True)
     lines = [ln.strip() for ln in text.splitlines()]
-    return "\n".join(ln for ln in lines if ln)
+    return _join_broken_cjk_lines("\n".join(ln for ln in lines if ln))
 
 
 def _extract_publish_ts(html_text: str) -> int:
@@ -177,14 +195,19 @@ def parse_wechat_article_html(
 
     content = soup.select_one("#js_content") or soup.select_one("div.rich_media_content")
     body_html = str(content) if content else ""
-    body_text = _html_to_text(body_html) if body_html else _html_to_text(html_text or "")
+    # 没有正文容器时不要把整页导航/验证页/脚本壳当正文
+    body_text = _html_to_text(body_html) if body_html else ""
+    content_ok = bool(content)
 
-    og_description = ""
-    og_desc = soup.find("meta", property="og:description")
-    if og_desc and og_desc.get("content"):
-        og_description = str(og_desc["content"]).strip()
+    og_description = extract_article_description(html_text or "")
+    author = extract_article_author(html_text or "")
 
-    if len(body_text) < 20 and og_description and len(og_description) > len(body_text):
+    if (
+        content_ok
+        and len(body_text) < 20
+        and og_description
+        and len(og_description) > len(body_text)
+    ):
         body_text = og_description
 
     publish_ts = _extract_publish_ts(html_text or "")
@@ -210,6 +233,8 @@ def parse_wechat_article_html(
         "publish_ts": publish_ts,
         "publish_at": publish_at,
         "og_description": og_description,
+        "author": author,
+        "content_ok": content_ok,
         "videos": extract_videos_from_html(html_text or body_html),
     }
 
@@ -342,6 +367,90 @@ def article_to_json(art: dict[str, Any]) -> str:
 
 
 DIGEST_FALLBACK_CHARS = 80
+_JUNK_DIGESTS = frozenset(
+    {
+        "微信公众平台",
+        "weixin official accounts platform",
+        "wechat",
+    }
+)
+_MSG_DESC_RE = re.compile(
+    r"var\s+msg_desc\s*=\s*(?:htmlDecode\()?\s*['\"](.+?)['\"]",
+    re.I | re.S,
+)
+_AUTHOR_VAR_RE = re.compile(
+    r"var\s+author\s*=\s*(?:htmlDecode\()?\s*['\"](.+?)['\"]",
+    re.I | re.S,
+)
+_NICKNAME_VAR_RE = re.compile(
+    r"var\s+nickname\s*=\s*(?:htmlDecode\()?\s*['\"](.+?)['\"]",
+    re.I | re.S,
+)
+_PROMO_LINE_RE = re.compile(
+    r"(加星标|设为星标|星标⭐|点击蓝字|点击上方关注|第一时间推送|下滑查看全文)"
+)
+
+
+def _is_junk_digest(text: str) -> bool:
+    compact = re.sub(r"\s+", "", text or "").strip()
+    if not compact:
+        return True
+    return compact.lower() in _JUNK_DIGESTS
+
+
+def extract_article_description(html_text: str) -> str:
+    """og:description → meta description → var msg_desc. Skip empty/platform junk."""
+    soup = BeautifulSoup(html_text or "", "html.parser")
+    candidates: list[str] = []
+    og = soup.find("meta", property="og:description")
+    if og and og.get("content"):
+        candidates.append(str(og["content"]))
+    named = soup.find("meta", attrs={"name": re.compile(r"^description$", re.I)})
+    if named and named.get("content"):
+        candidates.append(str(named["content"]))
+    m = _MSG_DESC_RE.search(html_text or "")
+    if m:
+        candidates.append(m.group(1))
+    for raw in candidates:
+        text = html.unescape(raw).strip()
+        text = re.sub(r"\s+", " ", text)
+        if not _is_junk_digest(text) and not _PROMO_LINE_RE.search(text):
+            return text
+    return ""
+
+
+def extract_article_author(html_text: str) -> str:
+    """Article byline, then official-account name (#js_name / var nickname)."""
+    soup = BeautifulSoup(html_text or "", "html.parser")
+    for sel in ("#js_author_name", "#authorName"):
+        el = soup.select_one(sel)
+        if el:
+            text = el.get_text(strip=True)
+            if text:
+                return text
+    m = _AUTHOR_VAR_RE.search(html_text or "")
+    if m:
+        text = html.unescape(m.group(1)).strip()
+        if text:
+            return text
+    el = soup.select_one("#js_name")
+    if el:
+        text = el.get_text(strip=True)
+        if text:
+            return text
+    m = _NICKNAME_VAR_RE.search(html_text or "")
+    if m:
+        text = html.unescape(m.group(1)).strip()
+        if text:
+            return text
+    return ""
+
+
+def _usable_digest(text: str) -> bool:
+    compact = (text or "").strip()
+    if not compact or _is_junk_digest(compact):
+        return False
+    return not _PROMO_LINE_RE.search(compact)
 
 
 def resolve_csv_digest(
@@ -351,13 +460,22 @@ def resolve_csv_digest(
     body_text: str = "",
 ) -> str:
     hist = (history_digest or "").strip()
-    if hist:
+    if _usable_digest(hist):
         return hist
     og = (og_description or "").strip()
-    if og:
+    if _usable_digest(og):
         return og
+    for para in re.split(r"[\n\r]+", body_text or ""):
+        compact = re.sub(r"\s+", "", para).strip()
+        if len(compact) < 12:
+            continue
+        if not _usable_digest(compact):
+            continue
+        return compact[:DIGEST_FALLBACK_CHARS]
     compact = re.sub(r"\s+", "", body_text or "")
-    return compact[:DIGEST_FALLBACK_CHARS]
+    if compact and not _is_junk_digest(compact):
+        return compact[:DIGEST_FALLBACK_CHARS]
+    return ""
 
 
 def format_csv_video_columns(videos: list) -> tuple[str, str]:
@@ -394,7 +512,7 @@ def article_to_csv_row(art: dict[str, Any]) -> dict[str, str]:
             og_description=str(art.get("og_description") or ""),
             body_text=str(art.get("body_text") or ""),
         ),
-        "正文": str(art.get("body_text") or "").strip(),
+        "正文": str(art.get("body_text") or "").replace("\x00", "").strip(),
         "视频路径": paths,
         "视频链接": urls,
         "阅读量": str((art.get("stats") or {}).get("read_num") or ""),
@@ -407,7 +525,9 @@ def _write_csv(path: Path, rows: list[dict[str, str]]) -> None:
     """Write CSV with utf-8-sig BOM so Excel opens Chinese correctly."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8-sig", newline="") as fh:
-        writer = csv.DictWriter(fh, fieldnames=list(CSV_COLUMNS))
+        writer = csv.DictWriter(
+            fh, fieldnames=list(CSV_COLUMNS), quoting=csv.QUOTE_ALL
+        )
         writer.writeheader()
         writer.writerows(rows)
 
@@ -1078,7 +1198,9 @@ def render_article_export(art: dict[str, Any], fmt: str) -> str:
         return article_to_json(art)
     if key == "csv":
         buf = io.StringIO()
-        writer = csv.DictWriter(buf, fieldnames=list(CSV_COLUMNS))
+        writer = csv.DictWriter(
+            buf, fieldnames=list(CSV_COLUMNS), quoting=csv.QUOTE_ALL
+        )
         writer.writeheader()
         writer.writerow(article_to_csv_row(art))
         return buf.getvalue()
@@ -1169,6 +1291,16 @@ def batch_export_articles(
             continue
         try:
             parsed = _fetch_with_retry(fetch, link, cred=cred)
+            content_ok = parsed.get("content_ok")
+            if content_ok is None:
+                content_ok = bool(
+                    str(parsed.get("body_text") or "").strip()
+                    or parsed.get("body_html")
+                )
+            if not content_ok:
+                parsed["body_text"] = ""
+                parsed["body_html"] = ""
+                parsed["title"] = title or parsed.get("title") or "(无标题)"
             if not parsed.get("publish_at") and row.get("publish_at"):
                 parsed["publish_at"] = row.get("publish_at")
             if not parsed.get("publish_ts") and row.get("publish_ts"):

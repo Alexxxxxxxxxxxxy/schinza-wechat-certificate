@@ -63,6 +63,8 @@ $argsList = @(
   "--hidden-import", "app.history_batch",
   "--hidden-import", "app.history_batch_ui",
   "--hidden-import", "app.capture_target",
+  "--hidden-import", "app.mac_proxy",
+  "--hidden-import", "app.capture_wait",
   "--hidden-import", "app.updater",
   "--hidden-import", "app.sync_server",
   "--hidden-import", "bs4",

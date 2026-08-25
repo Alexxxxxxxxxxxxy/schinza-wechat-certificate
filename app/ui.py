@@ -41,7 +41,15 @@ from app.ca_setup import (
     open_p12_in_explorer,
 )
 from app.capture_target import expected_biz, resolve_capture_target
-from app.batch_import import BatchRow, parse_batch_import
+from app.capture_wait import MAC_STALL_HINT, should_show_capture_stall_hint
+from app.mac_proxy import start_message_warns_proxy_failed
+from app.batch_import import (
+    BATCH_IMPORT_EXAMPLE,
+    BATCH_IMPORT_HELP,
+    BATCH_IMPORT_HINT,
+    BatchRow,
+    parse_batch_import,
+)
 from app.clipboard_watch import ClipboardWatcher
 from app.credentials import (
     credentials_to_json,
@@ -293,11 +301,13 @@ class CertificateApp(ctk.CTk):
         self.store = AccountStore(root_dir / "data" / "accounts.json")
         self.sightings = SightingsStore(default_sightings_path(root_dir))
         self._pending_capture_id: str | None = None
+        self._pending_capture_started_at: float = 0.0
         self._bulk_renew_remaining: set[str] = set()
         self._bulk_renew_total: int = 0
         self._bulk_renew_started_at: float = 0.0
         self._name_filter = ""
         self._bulk_no_capture_hint_shown = False
+        self._single_no_capture_hint_shown = False
         self._cards: dict[str, AccountCard] = {}
         self._rebuild_job: str | None = None
         self._tab = "credentials"
@@ -321,6 +331,7 @@ class CertificateApp(ctk.CTk):
         self._batch_check_vars: dict[str, ctk.BooleanVar] = {}
         self._history_groups: list[dict[str, Any]] = []
         self._history_active_group_id: str | None = None
+        self._batch_pick_open = False
         self._batch_fetching = False
         self._batch_checks_ready = False
         self._nav_btns: dict[str, ctk.CTkButton] = {}
@@ -724,7 +735,7 @@ class CertificateApp(ctk.CTk):
         self.add_btn.grid(row=2, column=2, sticky="e", padx=(0, 18), pady=6)
 
         paste_row = ctk.CTkFrame(form, fg_color="transparent")
-        paste_row.grid(row=3, column=0, columnspan=3, sticky="ew", padx=18, pady=(4, 14))
+        paste_row.grid(row=3, column=0, columnspan=3, sticky="ew", padx=18, pady=(4, 4))
 
         self.status_lbl = ctk.CTkLabel(
             paste_row,
@@ -750,6 +761,31 @@ class CertificateApp(ctk.CTk):
             hover_color="#3a4a5e",
             command=self.batch_import_accounts,
         ).pack(side="right", padx=(12, 0))
+
+        import_hint = ctk.CTkFrame(
+            form,
+            fg_color=COLORS["card"],
+            corner_radius=10,
+            border_width=1,
+            border_color=COLORS["border"],
+        )
+        import_hint.grid(row=4, column=0, columnspan=3, sticky="ew", padx=18, pady=(0, 12))
+        ctk.CTkLabel(
+            import_hint,
+            text="批量导入格式",
+            font=ctk.CTkFont(family=UI_FONT, size=12, weight="bold"),
+            text_color=COLORS["text"],
+            anchor="w",
+        ).pack(anchor="w", padx=12, pady=(8, 0))
+        ctk.CTkLabel(
+            import_hint,
+            text=f"{BATCH_IMPORT_HINT}\n示例：{BATCH_IMPORT_EXAMPLE}",
+            font=ctk.CTkFont(family=UI_FONT, size=12),
+            text_color=COLORS["muted"],
+            anchor="w",
+            justify="left",
+            wraplength=760,
+        ).pack(anchor="w", padx=12, pady=(2, 8))
 
     def _build_list(self) -> None:
         wrap = ctk.CTkFrame(self.cred_view, fg_color="transparent")
@@ -807,145 +843,172 @@ class CertificateApp(ctk.CTk):
         panel = ctk.CTkFrame(
             self.hist_view,
             fg_color=COLORS["panel"],
-            corner_radius=18,
+            corner_radius=12,
             border_width=1,
             border_color=COLORS["border"],
         )
-        panel.grid(row=0, column=0, sticky="ew", padx=20, pady=(16, 8))
+        panel.grid(row=0, column=0, sticky="ew", padx=20, pady=(12, 6))
         panel.grid_columnconfigure(1, weight=1)
-
-        ctk.CTkLabel(
-            panel,
-            text="拉取公众号历史文章",
-            font=ctk.CTkFont(family=UI_FONT, size=15, weight="bold"),
-            text_color=COLORS["text"],
-            anchor="w",
-        ).grid(row=0, column=0, columnspan=4, sticky="w", padx=18, pady=(14, 4))
-
-        ctk.CTkLabel(
-            panel,
-            text="选择公众号与时间范围后拉取；支持列表导出与正文导出（HTML / Markdown / TXT / JSON / Word）。",
-            font=ctk.CTkFont(family=UI_FONT, size=12),
-            text_color=COLORS["muted"],
-            anchor="w",
-            justify="left",
-            wraplength=720,
-        ).grid(row=1, column=0, columnspan=4, sticky="ew", padx=18, pady=(0, 10))
 
         ctk.CTkLabel(
             panel,
             text="公众号",
             text_color=COLORS["muted"],
-            font=ctk.CTkFont(family=UI_FONT, size=13),
-        ).grid(row=2, column=0, sticky="w", padx=(18, 8), pady=6)
+            font=ctk.CTkFont(family=UI_FONT, size=12),
+        ).grid(row=0, column=0, sticky="w", padx=(12, 6), pady=8)
 
         self.hist_account_menu = ctk.CTkOptionMenu(
             panel,
             values=["（暂无有效凭证）"],
-            height=36,
-            corner_radius=10,
+            height=32,
+            corner_radius=8,
             fg_color=COLORS["card"],
             button_color=COLORS["border"],
             button_hover_color="#3a4a5e",
             text_color=COLORS["text"],
-            font=ctk.CTkFont(family=UI_FONT, size=13),
-            dropdown_font=ctk.CTkFont(family=UI_FONT, size=13),
+            font=ctk.CTkFont(family=UI_FONT, size=12),
+            dropdown_font=ctk.CTkFont(family=UI_FONT, size=12),
             command=self._on_hist_account_change,
         )
-        self.hist_account_menu.grid(row=2, column=1, sticky="ew", padx=(0, 10), pady=6)
+        self.hist_account_menu.grid(row=0, column=1, sticky="ew", padx=(0, 8), pady=8)
         self.hist_account_menu.set("（暂无有效凭证）")
 
         self.hist_range_menu = ctk.CTkOptionMenu(
             panel,
             values=HISTORY_RANGE_LABELS,
-            width=130,
-            height=36,
-            corner_radius=10,
+            width=118,
+            height=32,
+            corner_radius=8,
             fg_color=COLORS["card"],
             button_color=COLORS["border"],
             button_hover_color="#3a4a5e",
             text_color=COLORS["text"],
-            font=ctk.CTkFont(family=UI_FONT, size=13),
-            dropdown_font=ctk.CTkFont(family=UI_FONT, size=13),
+            font=ctk.CTkFont(family=UI_FONT, size=12),
+            dropdown_font=ctk.CTkFont(family=UI_FONT, size=12),
             command=self._on_history_range_change,
         )
         self.hist_range_menu.set(self._history_range_label())
-        self.hist_range_menu.grid(row=2, column=2, sticky="e", padx=(0, 10), pady=6)
+        self.hist_range_menu.grid(row=0, column=2, sticky="e", padx=(0, 8), pady=8)
 
         self.hist_fetch_btn = ctk.CTkButton(
             panel,
             text=self._fetch_btn_label(),
-            width=120,
-            height=36,
-            corner_radius=10,
+            width=108,
+            height=32,
+            corner_radius=8,
             fg_color=COLORS["accent"],
             hover_color=COLORS["accent_hover"],
             text_color="#052e16",
-            font=ctk.CTkFont(family=UI_FONT, size=13, weight="bold"),
+            font=ctk.CTkFont(family=UI_FONT, size=12, weight="bold"),
             command=self.start_history_fetch,
         )
-        self.hist_fetch_btn.grid(row=2, column=3, sticky="e", padx=(0, 18), pady=6)
+        self.hist_fetch_btn.grid(row=0, column=3, sticky="e", padx=(0, 8), pady=8)
 
-        self.batch_pick_frame = ctk.CTkScrollableFrame(
+        self.hist_batch_toggle = ctk.CTkButton(
             panel,
-            fg_color=COLORS["card"],
-            height=120,
-            corner_radius=10,
+            text="批量…",
+            width=64,
+            height=32,
+            corner_radius=8,
+            fg_color=COLORS["border"],
+            hover_color="#3a4a5e",
+            command=self._toggle_batch_pick,
         )
-        self.batch_pick_frame.grid(
-            row=3, column=0, columnspan=4, sticky="ew", padx=18, pady=(4, 4)
-        )
-        self.batch_pick_frame.grid_columnconfigure(0, weight=1)
+        self.hist_batch_toggle.grid(row=0, column=4, sticky="e", padx=(0, 12), pady=8)
 
-        batch_pick_tools = ctk.CTkFrame(panel, fg_color="transparent")
-        batch_pick_tools.grid(
-            row=4, column=0, columnspan=4, sticky="ew", padx=18, pady=(0, 4)
+        self.batch_pick_box = ctk.CTkFrame(panel, fg_color="transparent")
+        self.batch_pick_box.grid(
+            row=1, column=0, columnspan=5, sticky="ew", padx=12, pady=(0, 4)
         )
+        self.batch_pick_box.grid_columnconfigure(0, weight=1)
+        self.batch_pick_frame = ctk.CTkScrollableFrame(
+            self.batch_pick_box,
+            fg_color=COLORS["card"],
+            height=72,
+            corner_radius=8,
+        )
+        self.batch_pick_frame.grid(row=0, column=0, sticky="ew")
+        self.batch_pick_frame.grid_columnconfigure(0, weight=1)
+        batch_pick_tools = ctk.CTkFrame(self.batch_pick_box, fg_color="transparent")
+        batch_pick_tools.grid(row=1, column=0, sticky="ew", pady=(4, 0))
         ctk.CTkButton(
-            batch_pick_tools, text="全选有效", width=88, height=32,
+            batch_pick_tools, text="全选有效", width=80, height=28,
             corner_radius=8, fg_color=COLORS["border"], hover_color="#3a4a5e",
             command=self.select_all_batch_accounts,
-        ).pack(side="left", padx=(0, 10))
+        ).pack(side="left", padx=(0, 8))
         ctk.CTkButton(
-            batch_pick_tools, text="清空", width=64, height=32,
+            batch_pick_tools, text="清空", width=56, height=28,
             corner_radius=8, fg_color=COLORS["border"], hover_color="#3a4a5e",
             command=self.clear_batch_account_selection,
-        ).pack(side="left", padx=(0, 10))
+        ).pack(side="left", padx=(0, 8))
         self.hist_batch_btn = ctk.CTkButton(
-            batch_pick_tools, text="批量拉取", width=96, height=32,
+            batch_pick_tools, text="批量拉取", width=88, height=28,
             corner_radius=8, fg_color=COLORS["accent"],
             hover_color=COLORS["accent_hover"], text_color="#052e16",
             font=ctk.CTkFont(family=UI_FONT, size=12, weight="bold"),
             command=self.start_history_batch_fetch,
         )
         self.hist_batch_btn.pack(side="left")
+        self.batch_pick_box.grid_remove()
 
         self.hist_status = ctk.CTkLabel(
             panel,
-            text="请选择公众号与时间范围后点击拉取。",
+            text="选择公众号与时间范围后拉取。导出工具在下方列表。",
             text_color=COLORS["muted"],
             font=ctk.CTkFont(family=UI_FONT, size=12),
             anchor="w",
             justify="left",
-            wraplength=720,
+            wraplength=760,
         )
-        self.hist_status.grid(row=5, column=0, columnspan=4, sticky="ew", padx=18, pady=(8, 4))
+        self.hist_status.grid(
+            row=2, column=0, columnspan=5, sticky="ew", padx=12, pady=(0, 8)
+        )
 
-        list_tools = ctk.CTkFrame(panel, fg_color="transparent")
-        list_tools.grid(row=6, column=0, columnspan=4, sticky="ew", padx=18, pady=(4, 8))
+        list_wrap = ctk.CTkFrame(self.hist_view, fg_color="transparent")
+        list_wrap.grid(row=1, column=0, sticky="nsew", padx=20, pady=(0, 8))
+        list_wrap.grid_columnconfigure(0, weight=1)
+        list_wrap.grid_rowconfigure(3, weight=1)
 
+        head = ctk.CTkFrame(list_wrap, fg_color="transparent")
+        head.grid(row=0, column=0, sticky="ew", pady=(0, 6))
+        head.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(
+            head,
+            text="文章列表",
+            font=ctk.CTkFont(family=UI_FONT, size=14, weight="bold"),
+            text_color=COLORS["text"],
+            anchor="w",
+        ).grid(row=0, column=0, sticky="w")
+
+        self.hist_groups = ctk.CTkScrollableFrame(
+            list_wrap,
+            fg_color="transparent",
+            orientation="horizontal",
+            height=36,
+        )
+        self.hist_groups.grid(row=1, column=0, sticky="ew", pady=(0, 4))
+
+        tools = ctk.CTkFrame(
+            list_wrap,
+            fg_color=COLORS["panel"],
+            corner_radius=10,
+            border_width=1,
+            border_color=COLORS["border"],
+        )
+        tools.grid(row=2, column=0, sticky="ew", pady=(0, 6))
+        list_tools = ctk.CTkFrame(tools, fg_color="transparent")
+        list_tools.pack(fill="x", padx=10, pady=(6, 2))
         ctk.CTkLabel(
             list_tools,
-            text="列表导出",
+            text="列表",
             text_color=COLORS["muted"],
             font=ctk.CTkFont(family=UI_FONT, size=12),
-        ).pack(side="left", padx=(0, 10))
-
+        ).pack(side="left", padx=(0, 8))
         self.hist_format_menu = ctk.CTkOptionMenu(
             list_tools,
             values=FORMAT_LABELS,
-            width=128,
-            height=32,
+            width=118,
+            height=28,
             corner_radius=8,
             fg_color=COLORS["card"],
             button_color=COLORS["border"],
@@ -955,69 +1018,43 @@ class CertificateApp(ctk.CTk):
             dropdown_font=ctk.CTkFont(family=UI_FONT, size=12),
         )
         self.hist_format_menu.set(FORMAT_LABELS[0])
-        self.hist_format_menu.pack(side="left", padx=(0, 14))
-
+        self.hist_format_menu.pack(side="left", padx=(0, 8))
         ctk.CTkButton(
-            list_tools,
-            text="复制列表",
-            width=84,
-            height=32,
-            corner_radius=8,
-            fg_color=COLORS["border"],
-            hover_color="#3a4a5e",
+            list_tools, text="复制", width=56, height=28, corner_radius=8,
+            fg_color=COLORS["border"], hover_color="#3a4a5e",
             command=self.copy_history_formatted,
-        ).pack(side="left", padx=(0, 14))
-
+        ).pack(side="left", padx=(0, 8))
         ctk.CTkButton(
-            list_tools,
-            text="导出列表",
-            width=88,
-            height=32,
-            corner_radius=8,
-            fg_color=COLORS["accent"],
-            hover_color=COLORS["accent_hover"],
+            list_tools, text="导出", width=56, height=28, corner_radius=8,
+            fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
             text_color="#052e16",
             font=ctk.CTkFont(family=UI_FONT, size=12, weight="bold"),
             command=self.export_history_file,
-        ).pack(side="left", padx=(0, 20))
-
+        ).pack(side="left", padx=(0, 8))
         ctk.CTkButton(
-            list_tools,
-            text="补录链接",
-            width=88,
-            height=32,
-            corner_radius=8,
-            fg_color=COLORS["border"],
-            hover_color="#3a4a5e",
+            list_tools, text="补录", width=56, height=28, corner_radius=8,
+            fg_color=COLORS["border"], hover_color="#3a4a5e",
             command=self.manual_add_article_url,
-        ).pack(side="left", padx=(0, 14))
-
+        ).pack(side="left", padx=(0, 8))
         ctk.CTkButton(
-            list_tools,
-            text="刷新",
-            width=68,
-            height=32,
-            corner_radius=8,
-            fg_color=COLORS["border"],
-            hover_color="#3a4a5e",
+            list_tools, text="刷新", width=56, height=28, corner_radius=8,
+            fg_color=COLORS["border"], hover_color="#3a4a5e",
             command=self.refresh_history_account_options,
         ).pack(side="left")
 
-        batch_tools = ctk.CTkFrame(panel, fg_color="transparent")
-        batch_tools.grid(row=7, column=0, columnspan=4, sticky="ew", padx=18, pady=(0, 16))
-
+        batch_tools = ctk.CTkFrame(tools, fg_color="transparent")
+        batch_tools.pack(fill="x", padx=10, pady=(0, 6))
         ctk.CTkLabel(
             batch_tools,
-            text="正文导出",
+            text="正文",
             text_color=COLORS["muted"],
             font=ctk.CTkFont(family=UI_FONT, size=12),
-        ).pack(side="left", padx=(0, 10))
-
+        ).pack(side="left", padx=(0, 8))
         self.article_fmt_menu = ctk.CTkOptionMenu(
             batch_tools,
             values=ARTICLE_EXPORT_LABELS,
-            width=110,
-            height=32,
+            width=100,
+            height=28,
             corner_radius=8,
             fg_color=COLORS["card"],
             button_color=COLORS["border"],
@@ -1027,101 +1064,56 @@ class CertificateApp(ctk.CTk):
             dropdown_font=ctk.CTkFont(family=UI_FONT, size=12),
         )
         self.article_fmt_menu.set("Markdown")
-        self.article_fmt_menu.pack(side="left", padx=(0, 14))
-
+        self.article_fmt_menu.pack(side="left", padx=(0, 8))
         ctk.CTkCheckBox(
-            batch_tools,
-            text="下载视频",
-            variable=self._export_download_videos_var,
-            width=96,
-            height=32,
-            checkbox_width=18,
-            checkbox_height=18,
-            border_color=COLORS["border"],
-            fg_color=COLORS["accent"],
-            hover_color=COLORS["accent_hover"],
-            text_color=COLORS["text"],
+            batch_tools, text="视频", variable=self._export_download_videos_var,
+            width=56, height=28, checkbox_width=16, checkbox_height=16,
+            border_color=COLORS["border"], fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"], text_color=COLORS["text"],
             font=ctk.CTkFont(family=UI_FONT, size=12),
-        ).pack(side="left", padx=(0, 14))
-
+        ).pack(side="left", padx=(0, 8))
         ctk.CTkCheckBox(
-            batch_tools,
-            text="抓取互动数据",
-            variable=self._export_fetch_stats_var,
-            width=116,
-            height=32,
-            checkbox_width=18,
-            checkbox_height=18,
-            border_color=COLORS["border"],
-            fg_color=COLORS["accent"],
-            hover_color=COLORS["accent_hover"],
-            text_color=COLORS["text"],
+            batch_tools, text="互动", variable=self._export_fetch_stats_var,
+            width=56, height=28, checkbox_width=16, checkbox_height=16,
+            border_color=COLORS["border"], fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"], text_color=COLORS["text"],
             font=ctk.CTkFont(family=UI_FONT, size=12),
-        ).pack(side="left", padx=(0, 14))
-
+        ).pack(side="left", padx=(0, 8))
         ctk.CTkButton(
-            batch_tools,
-            text="全选",
-            width=64,
-            height=32,
-            corner_radius=8,
-            fg_color=COLORS["border"],
-            hover_color="#3a4a5e",
+            batch_tools, text="全选", width=52, height=28, corner_radius=8,
+            fg_color=COLORS["border"], hover_color="#3a4a5e",
             command=self.select_all_history,
-        ).pack(side="left", padx=(0, 14))
-
+        ).pack(side="left", padx=(0, 8))
         ctk.CTkButton(
-            batch_tools,
-            text="取消选择",
-            width=84,
-            height=32,
-            corner_radius=8,
-            fg_color=COLORS["border"],
-            hover_color="#3a4a5e",
+            batch_tools, text="取消", width=52, height=28, corner_radius=8,
+            fg_color=COLORS["border"], hover_color="#3a4a5e",
             command=self.clear_history_selection,
-        ).pack(side="left", padx=(0, 14))
-
+        ).pack(side="left", padx=(0, 8))
         self.batch_export_btn = ctk.CTkButton(
-            batch_tools,
-            text="批量导出",
-            width=96,
-            height=32,
-            corner_radius=8,
-            fg_color=COLORS["accent"],
-            hover_color=COLORS["accent_hover"],
+            batch_tools, text="批量导出", width=84, height=28, corner_radius=8,
+            fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
             text_color="#052e16",
             font=ctk.CTkFont(family=UI_FONT, size=12, weight="bold"),
             command=self.batch_export_selected,
         )
-        self.batch_export_btn.pack(side="left", padx=(0, 14))
+        self.batch_export_btn.pack(side="left")
 
-        list_wrap = ctk.CTkFrame(self.hist_view, fg_color="transparent")
-        list_wrap.grid(row=1, column=0, sticky="nsew", padx=20, pady=(0, 8))
-        list_wrap.grid_columnconfigure(0, weight=1)
-        list_wrap.grid_rowconfigure(2, weight=1)
-
-        ctk.CTkLabel(
-            list_wrap,
-            text="文章列表（勾选后可批量导出正文）",
-            font=ctk.CTkFont(family=UI_FONT, size=15, weight="bold"),
-            text_color=COLORS["text"],
-            anchor="w",
-        ).grid(row=0, column=0, sticky="w", pady=(0, 10))
-
-        self.hist_groups = ctk.CTkScrollableFrame(
-            list_wrap,
-            fg_color="transparent",
-            orientation="horizontal",
-            height=40,
-        )
-        self.hist_groups.grid(row=1, column=0, sticky="ew", pady=(0, 8))
         self.hist_list = ctk.CTkScrollableFrame(
             list_wrap,
             fg_color=COLORS["bg"],
             corner_radius=12,
         )
-        self.hist_list.grid(row=2, column=0, sticky="nsew")
+        self.hist_list.grid(row=3, column=0, sticky="nsew")
         self.hist_list.grid_columnconfigure(0, weight=1)
+
+    def _toggle_batch_pick(self) -> None:
+        self._batch_pick_open = not self._batch_pick_open
+        if self._batch_pick_open:
+            self.batch_pick_box.grid()
+            self.hist_batch_toggle.configure(text="收起")
+        else:
+            self.batch_pick_box.grid_remove()
+            self.hist_batch_toggle.configure(text="批量…")
 
     def _build_sync_panel(self) -> None:
         self.sync_view = ctk.CTkFrame(self.body, fg_color="transparent")
@@ -1592,13 +1584,20 @@ class CertificateApp(ctk.CTk):
         ok, msg = self.mitm.start(set_system_proxy=True)
         if ok:
             self.proxy_btn.configure(text="停止抓包代理")
+            warn = start_message_warns_proxy_failed(msg)
             tip = (
-                f"代理运行中 {PROXY_HOST}:{PROXY_PORT}。"
-                "请先「添加并抓包」绑定公众号，再在微信里打开文章；"
-                "仅开代理不会入库。"
+                msg
+                if warn
+                else (
+                    f"代理运行中 {PROXY_HOST}:{PROXY_PORT}。"
+                    "请先「添加并抓包」绑定公众号，再在微信里打开文章；"
+                    "仅开代理不会入库。"
+                )
             )
-            self.proxy_lbl.configure(text=tip, text_color=COLORS["ok"])
-            self.set_status(tip, ok=True)
+            self.proxy_lbl.configure(
+                text=tip, text_color=COLORS["danger"] if warn else COLORS["ok"]
+            )
+            self.set_status(tip.split("\n")[0], ok=not warn)
         else:
             self.proxy_lbl.configure(text=msg, text_color=COLORS["danger"])
             self.set_status(msg.split("\n")[0], ok=False)
@@ -1609,10 +1608,13 @@ class CertificateApp(ctk.CTk):
         ok, msg = self.mitm.start(set_system_proxy=True)
         if ok:
             self.proxy_btn.configure(text="停止抓包代理")
+            warn = start_message_warns_proxy_failed(msg)
             self.proxy_lbl.configure(
-                text=f"抓包代理已自动启动 {PROXY_HOST}:{PROXY_PORT}",
-                text_color=COLORS["ok"],
+                text=msg if warn else f"抓包代理已自动启动 {PROXY_HOST}:{PROXY_PORT}",
+                text_color=COLORS["danger"] if warn else COLORS["ok"],
             )
+            if warn:
+                self.set_status(msg.split("\n")[0], ok=False)
         else:
             self.proxy_lbl.configure(text=msg, text_color=COLORS["danger"])
             self.set_status(msg, ok=False)
@@ -1795,6 +1797,8 @@ class CertificateApp(ctk.CTk):
             return
         row = self.store.add_pending(name=name or "未命名公众号", article_url=url)
         self._pending_capture_id = row["id"]
+        self._pending_capture_started_at = time.time()
+        self._single_no_capture_hint_shown = False
         self.watcher.enable()
         self.name_entry.delete(0, "end")
         self.url_entry.delete(0, "end")
@@ -1807,11 +1811,83 @@ class CertificateApp(ctk.CTk):
             ok=True,
         )
 
+    def _confirm_batch_import_format(self) -> bool:
+        """Show import format/example, then continue to the file picker."""
+        result = {"ok": False}
+        dlg = ctk.CTkToplevel(self)
+        dlg.title("批量导入")
+        dlg.configure(fg_color=COLORS["bg"])
+        dlg.geometry("520x360")
+        dlg.minsize(480, 320)
+        dlg.transient(self)
+        dlg.grab_set()
+        dlg.resizable(False, False)
+        try:
+            self.update_idletasks()
+            x = self.winfo_rootx() + (self.winfo_width() - 520) // 2
+            y = self.winfo_rooty() + (self.winfo_height() - 360) // 2
+            dlg.geometry(f"+{max(0, x)}+{max(0, y)}")
+        except Exception:
+            pass
+
+        card = ctk.CTkFrame(
+            dlg,
+            fg_color=COLORS["panel"],
+            corner_radius=16,
+            border_width=1,
+            border_color=COLORS["border"],
+        )
+        card.pack(fill="both", expand=True, padx=16, pady=16)
+        card.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(
+            card,
+            text="导入格式",
+            font=ctk.CTkFont(family=UI_FONT, size=16, weight="bold"),
+            text_color=COLORS["text"],
+            anchor="w",
+        ).grid(row=0, column=0, sticky="ew", padx=18, pady=(16, 6))
+        ctk.CTkLabel(
+            card,
+            text=BATCH_IMPORT_HELP,
+            font=ctk.CTkFont(family=MONO_FONT, size=12),
+            text_color=COLORS["muted"],
+            anchor="w",
+            justify="left",
+            wraplength=440,
+        ).grid(row=1, column=0, sticky="ew", padx=18, pady=(0, 12))
+        btns = ctk.CTkFrame(card, fg_color="transparent")
+        btns.grid(row=2, column=0, sticky="e", padx=18, pady=(0, 16))
+
+        def _cancel() -> None:
+            result["ok"] = False
+            dlg.destroy()
+
+        def _ok() -> None:
+            result["ok"] = True
+            dlg.destroy()
+
+        ctk.CTkButton(
+            btns, text="取消", width=80, height=32, corner_radius=8,
+            fg_color=COLORS["border"], hover_color="#3a4a5e", command=_cancel,
+        ).pack(side="left", padx=(0, 10))
+        ctk.CTkButton(
+            btns, text="选择文件", width=100, height=32, corner_radius=8,
+            fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
+            text_color="#052e16",
+            font=ctk.CTkFont(family=UI_FONT, size=13, weight="bold"),
+            command=_ok,
+        ).pack(side="left")
+        dlg.protocol("WM_DELETE_WINDOW", _cancel)
+        dlg.wait_window()
+        return bool(result["ok"])
+
     def batch_import_accounts(self) -> None:
         """批量导入 CSV/TXT（公众号,文章链接），逐个添加并抓包。
 
         短链（无 __biz）会先在后台抓文章页自动提取 __biz，保证抓包能匹配。
         """
+        if not self._confirm_batch_import_format():
+            return
         path = filedialog.askopenfilename(
             title="选择批量导入文件（CSV/TXT）",
             filetypes=[
@@ -1910,6 +1986,8 @@ class CertificateApp(ctk.CTk):
         self._bulk_renew_total = 0
         self._bulk_renew_started_at = 0.0
         self._bulk_no_capture_hint_shown = False
+        self._single_no_capture_hint_shown = False
+        self._pending_capture_started_at = 0.0
 
     def _bulk_renew_active(self) -> bool:
         return bool(self._bulk_renew_remaining)
@@ -1929,6 +2007,8 @@ class CertificateApp(ctk.CTk):
         self.mitm.reset_capture_state()
         self.store.set_awaiting(account_id)
         self._pending_capture_id = account_id
+        self._pending_capture_started_at = time.time()
+        self._single_no_capture_hint_shown = False
         self.watcher.enable()
 
         name = str(row.get("name") or "")
@@ -2091,6 +2171,8 @@ class CertificateApp(ctk.CTk):
             pending_id and str(pending_id) == str(target)
         ):
             self._pending_capture_id = None
+            self._pending_capture_started_at = 0.0
+            self._single_no_capture_hint_shown = False
             self.watcher.disable()
             self.set_status(
                 f"「{name}」凭证已更新，有效期 {TTL_MINUTES} 分钟",
@@ -2769,6 +2851,8 @@ class CertificateApp(ctk.CTk):
         rows = self._batch_account_rows()
         chosen = [r for r in rows if r["id"] in self._batch_selected and r["active"]]
         if not chosen:
+            if not self._batch_pick_open:
+                self._toggle_batch_pick()
             self.set_hist_status("请先勾选至少一个有效凭证公众号。", ok=False)
             return
         self._history_fetching = True
@@ -2976,7 +3060,7 @@ class CertificateApp(ctk.CTk):
                 border_width=1,
                 border_color=COLORS["border"],
             )
-            card.grid(row=i + 1, column=0, sticky="ew", pady=(0, 12))
+            card.grid(row=i + 1, column=0, sticky="ew", pady=(0, 6))
             card.grid_columnconfigure(1, weight=1)
 
             key = self._article_key(art)
@@ -2993,7 +3077,7 @@ class CertificateApp(ctk.CTk):
                 border_color=COLORS["border"],
                 variable=var,
                 command=lambda k=key, v=var: self._toggle_history_select(k, bool(v.get())),
-            ).grid(row=0, column=0, rowspan=3, sticky="n", padx=(14, 6), pady=14)
+            ).grid(row=0, column=0, rowspan=3, sticky="n", padx=(10, 4), pady=8)
 
             title = art.get("title") or "(无标题)"
             when = art.get("publish_at") or ""
@@ -3016,7 +3100,7 @@ class CertificateApp(ctk.CTk):
                 anchor="w",
                 justify="left",
                 wraplength=640,
-            ).grid(row=0, column=1, sticky="w", padx=(0, 14), pady=(12, 2))
+            ).grid(row=0, column=1, sticky="w", padx=(0, 12), pady=(8, 0))
 
             meta = when + (f"  ·  {digest}" if digest else "") + source_tag
             ctk.CTkLabel(
@@ -3027,10 +3111,10 @@ class CertificateApp(ctk.CTk):
                 anchor="w",
                 justify="left",
                 wraplength=640,
-            ).grid(row=1, column=1, sticky="w", padx=(0, 14), pady=(0, 8))
+            ).grid(row=1, column=1, sticky="w", padx=(0, 12), pady=(0, 4))
 
             actions = ctk.CTkFrame(card, fg_color="transparent")
-            actions.grid(row=2, column=1, sticky="e", padx=(0, 14), pady=(0, 14))
+            actions.grid(row=2, column=1, sticky="e", padx=(0, 12), pady=(0, 8))
 
             ctk.CTkButton(
                 actions,
@@ -3434,6 +3518,12 @@ class CertificateApp(ctk.CTk):
             self.set_hist_status(
                 f"未勾选文章，将导出全部 {len(selected)} 篇…", ok=True
             )
+        acct = (self._history_account_name or "").strip()
+        if acct:
+            selected = [
+                a if str(a.get("author") or "").strip() else {**a, "author": acct}
+                for a in selected
+            ]
         fmt_key = self._resolve_article_fmt(self.article_fmt_menu.get())
         label = ARTICLE_EXPORT_FORMATS.get(fmt_key, fmt_key)
         initial_dir = str((self.root_dir / "data" / "exports").resolve())
@@ -3545,11 +3635,14 @@ class CertificateApp(ctk.CTk):
         if self._bulk_renew_active() and not self._bulk_no_capture_hint_shown:
             if time.time() - self._bulk_renew_started_at > 20:
                 self._bulk_no_capture_hint_shown = True
-                self.set_status(
-                    "仍未捕获到微信流量：请先重启微信，再重新打开/刷新各公众号文章"
-                    "（或滚动其历史消息页）；抓包明细见 data/capture_debug.log",
-                    ok=False,
-                )
+                self.set_status(MAC_STALL_HINT, ok=False)
+        elif should_show_capture_stall_hint(
+            time.time() - self._pending_capture_started_at,
+            waiting=bool(self._capture_target_id() and self._pending_capture_started_at),
+            already_shown=self._single_no_capture_hint_shown,
+        ):
+            self._single_no_capture_hint_shown = True
+            self.set_status(MAC_STALL_HINT, ok=False)
         rows = {r["id"]: r for r in self.store.list_accounts()}
         for aid, card in list(self._cards.items()):
             if aid in rows:

@@ -3,7 +3,7 @@ from PyInstaller.utils.hooks import collect_all
 
 datas = [('mitmproxy-ca.pem', '.'), ('app\\mitm_addon.py', 'app'), ('assets\\schinza.ico', 'assets'), ('assets\\logo.png', 'assets'), ('assets\\logo-128.png', 'assets'), ('assets\\logo-256.png', 'assets'), ('mitmproxy-ca-cert.p12', '.'), ('mitmproxy-ca.p12', '.'), ('mitmproxy-ca-cert.cer', '.')]
 binaries = [('C:\\Users\\MR\\.conda\\envs\\schinza\\Library\\bin\\libssl-3-x64.dll', '.'), ('C:\\Users\\MR\\.conda\\envs\\schinza\\Library\\bin\\libcrypto-3-x64.dll', '.')]
-hiddenimports = ['ssl', '_ssl', 'pyperclip', 'requests', 'app.mitm_addon', 'app.history_client', 'app.history_export', 'app.article_reader', 'app.sightings', 'app.history_ranges', 'app.history_account_select', 'app.history_batch', 'app.history_batch_ui', 'app.capture_target', 'app.updater', 'app.sync_server', 'bs4', 'lxml', 'docx']
+hiddenimports = ['ssl', '_ssl', 'pyperclip', 'requests', 'app.mitm_addon', 'app.history_client', 'app.history_export', 'app.article_reader', 'app.sightings', 'app.history_ranges', 'app.history_account_select', 'app.history_batch', 'app.history_batch_ui', 'app.capture_target', 'app.mac_proxy', 'app.capture_wait', 'app.updater', 'app.sync_server', 'bs4', 'lxml', 'docx']
 tmp_ret = collect_all('customtkinter')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('mitmproxy')

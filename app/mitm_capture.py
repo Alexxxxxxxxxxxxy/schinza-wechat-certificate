@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import subprocess
 import sys
 import threading
 import time
@@ -13,67 +12,12 @@ from pathlib import Path
 from typing import Any
 
 from app.ca_setup import PROXY_HOST, PROXY_PORT, prepare_mitm_confdir
+from app.mac_proxy import apply_mac_system_proxy, restore_mac_system_proxy
 
 try:
     import winreg  # type: ignore
 except ImportError:  # pragma: no cover
     winreg = None  # type: ignore
-
-
-# ── macOS system-proxy helpers (networksetup / scutil) ───────────────
-
-def _mac_default_service() -> str | None:
-    """Return the networksetup service name bound to the default route (e.g. 'Wi-Fi')."""
-    try:
-        out = subprocess.check_output(["route", "-n", "get", "default"], text=True)
-    except Exception:
-        return None
-    dev: str | None = None
-    for line in out.splitlines():
-        line = line.strip()
-        if line.startswith("interface:"):
-            dev = line.split(":", 1)[1].strip()
-    if not dev:
-        return None
-    try:
-        hp = subprocess.check_output(
-            ["networksetup", "-listallhardwareports"], text=True
-        )
-    except Exception:
-        return None
-    svc: str | None = None
-    cur: str | None = None
-    for line in hp.splitlines():
-        line = line.strip()
-        if line.startswith("Hardware Port:"):
-            cur = line.split(":", 1)[1].strip()
-        elif line.startswith("Device:") and line.split(":", 1)[1].strip() == dev:
-            svc = cur
-    return svc
-
-
-def _mac_read_proxy(svc: str, kind: str) -> dict[str, object]:
-    """kind: 'web' or 'secure'. Returns {enabled, server, port} of current settings."""
-    cmd = f"-get{'securewebproxy' if kind == 'secure' else 'webproxy'}"
-    try:
-        out = subprocess.check_output(["networksetup", cmd, svc], text=True)
-    except Exception:
-        return {"enabled": False}
-    state: dict[str, object] = {"enabled": False}
-    for line in out.splitlines():
-        k, _, v = line.partition(":")
-        k = k.strip().lower()
-        v = v.strip()
-        if k == "enabled":
-            state["enabled"] = v.lower() in ("yes", "true", "1")
-        elif k == "server":
-            state["server"] = v
-        elif k == "port":
-            try:
-                state["port"] = int(v)
-            except ValueError:
-                pass
-    return state
 
 
 class MitmCaptureService:
@@ -191,7 +135,8 @@ class MitmCaptureService:
             from app.mitm_addon import CredentialCapture
 
             opts = Options(
-                listen_host=PROXY_HOST,
+                # 0.0.0.0: WeChat / localhost on macOS may not hit 127.0.0.1-only bind
+                listen_host="0.0.0.0",
                 listen_port=PROXY_PORT,
                 confdir=str(confdir),
             )
@@ -301,66 +246,14 @@ class MitmCaptureService:
             return True, "；".join(msg_parts) if msg_parts else "代理未在运行"
 
     def _mac_set_system_proxy(self, enable: bool) -> tuple[bool, str]:
-        """Set/restore macOS HTTP+HTTPS proxy for the active network service."""
-        svc = _mac_default_service()
-        if not svc:
-            return False, "无法识别当前网络服务，请手动设置系统代理 127.0.0.1:8088"
-        try:
-            if enable:
-                if self._mac_proxy_backup is None:
-                    self._mac_proxy_backup = {
-                        "web": _mac_read_proxy(svc, "web"),
-                        "secure": _mac_read_proxy(svc, "secure"),
-                    }
-                for kind in ("web", "secure"):
-                    setter = "setsecurewebproxy" if kind == "secure" else "setwebproxy"
-                    subprocess.run(
-                        ["networksetup", setter, svc, PROXY_HOST, str(PROXY_PORT)],
-                        check=True, capture_output=True, text=True,
-                    )
-                for kind in ("web", "secure"):
-                    stater = "setsecurewebproxystate" if kind == "secure" else "setwebproxystate"
-                    subprocess.run(
-                        ["networksetup", stater, svc, "on"],
-                        check=True, capture_output=True, text=True,
-                    )
-                return True, (
-                    f"已设置系统代理（{svc}）→ 127.0.0.1:8088。"
-                    "请重启微信 Mac（部分版本不会自动跟随系统代理）再打开文章抓包。"
-                )
-            # restore
-            backup, self._mac_proxy_backup = self._mac_proxy_backup, None
-            if backup:
-                for kind in ("web", "secure"):
-                    st = backup.get(kind) or {}
-                    setter = "setsecurewebproxy" if kind == "secure" else "setwebproxy"
-                    stater = "setsecurewebproxystate" if kind == "secure" else "setwebproxystate"
-                    if st.get("server"):
-                        subprocess.run(
-                            ["networksetup", setter, svc, str(st["server"]), str(st.get("port") or 80)],
-                            check=True, capture_output=True, text=True,
-                        )
-                    subprocess.run(
-                        ["networksetup", stater, svc, "on" if st.get("enabled") else "off"],
-                        check=True, capture_output=True, text=True,
-                    )
-            else:
-                for stater in ("setwebproxystate", "setsecurewebproxystate"):
-                    subprocess.run(
-                        ["networksetup", stater, svc, "off"],
-                        check=True, capture_output=True, text=True,
-                    )
-            return True, "已恢复系统代理设置（macOS）"
-        except subprocess.CalledProcessError as exc:
-            return (
-                False,
-                "设置 macOS 系统代理需要管理员权限，networksetup 执行失败："
-                f"{exc.stderr or exc}\n"
-                "可手动设置：系统设置 → 网络 → 详细信息 → 代理 → 勾选网页代理/安全网页代理，"
-                "服务器 127.0.0.1 端口 8088，然后重启微信。",
-            )
-        except Exception as exc:  # noqa: BLE001
-            return False, f"设置系统代理异常：{exc}"
+        """Set/restore macOS HTTP+HTTPS proxy on every enabled network service."""
+        if enable:
+            ok, msg, backup = apply_mac_system_proxy(self._mac_proxy_backup)
+            if backup is not None:
+                self._mac_proxy_backup = backup
+            return ok, msg
+        backup, self._mac_proxy_backup = self._mac_proxy_backup, None
+        return restore_mac_system_proxy(backup)
 
     def enable_system_proxy(self) -> tuple[bool, str]:
         if sys.platform == "darwin":
