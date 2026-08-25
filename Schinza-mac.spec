@@ -119,8 +119,8 @@ app = BUNDLE(
     info_plist={
         "CFBundleName": "Schinza",
         "CFBundleDisplayName": "Schinza 凭证助手",
-        "CFBundleShortVersionString": "1.11.16",
-        "CFBundleVersion": "1.11.16",
+        "CFBundleShortVersionString": "1.12.14",
+        "CFBundleVersion": "1.12.14",
         "NSHighResolutionCapable": True,
         "LSMinimumSystemVersion": "11.0",
         "NSPrincipalClass": "NSApplication",
