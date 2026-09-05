@@ -1,3 +1,3 @@
 """Schinza WeChat short-lived credential desktop helper."""
 
-__version__ = "1.12.14"
+__version__ = "1.12.15"

@@ -1,15 +1,55 @@
 name: Build Schinza (Windows + macOS)
 
+# 发 Release 的两种方式：
+# 1) 把带新版本号的代码推进 main → 若还没有 v{version} 标签，打包后自动建 tag + Release
+# 2) 推送标签 v1.12.15 → 打包并发布到该 tag
+# 3) Actions 里手动 Run workflow，勾选 create_release
 on:
-  workflow_dispatch:          # 手动触发
+  workflow_dispatch:
+    inputs:
+      create_release:
+        description: "打包完成后创建 GitHub Release"
+        type: boolean
+        default: true
   push:
-    branches: ["main"]        # push 到 main 自动重建（只出产物，不发 Release）
-    tags: ["v*"]              # 打 v 标签自动重建 + 自动发 Release
+    branches: ["main"]
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: schinza-build-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
+  meta:
+    name: Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+      - id: v
+        name: Read app.__version__
+        run: |
+          set -euo pipefail
+          ver=$(python3 <<'PY'
+          import pathlib, re
+          text = pathlib.Path("app/__init__.py").read_text(encoding="utf-8")
+          match = re.search(r'__version__\s*=\s*[\'"]([^\'"]+)', text)
+          if not match:
+              raise SystemExit("missing __version__ in app/__init__.py")
+          print(match.group(1))
+          PY
+          )
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+          echo "APP_VERSION=$ver"
+
   build-mac:
     name: macOS (arm64)
-    runs-on: macos-14          # Apple Silicon (arm64)
+    needs: [meta]
+    runs-on: macos-14
     steps:
       - uses: actions/checkout@v5
 
@@ -17,8 +57,6 @@ jobs:
         with:
           python-version: "3.11"
 
-      # Schinza-mac.spec 依赖 mitmproxy CA，而私钥不进仓库：
-      # 在 runner 上跑一次 mitmdump 让它在 ~/.mitmproxy 自动生成 CA
       - name: Generate mitmproxy CA on runner
         shell: bash
         run: |
@@ -38,22 +76,22 @@ jobs:
         shell: bash
         run: |
           set -e
-          # DMG 可选：hdiutil 在部分 CI 环境不产出，不能因此失败
           if [ -f dist/Schinza-mac-arm64.dmg ]; then
-            mv dist/Schinza-mac-arm64.dmg Schinza-mac-arm64.dmg
+            mv dist/Schinza-mac-arm64.dmg "Schinza-mac-arm64-${{ needs.meta.outputs.version }}.dmg"
           else
             echo "DMG 未生成（hdiutil 失败），跳过；.app zip 仍会产出"
           fi
-          (cd dist && zip -r ../Schinza-mac-arm64.zip Schinza.app)
+          (cd dist && zip -r "../Schinza-mac-arm64-${{ needs.meta.outputs.version }}.zip" Schinza.app)
 
       - uses: actions/upload-artifact@v5
         with:
           name: Schinza-mac-arm64
-          path: Schinza-mac-arm64.zip
+          path: Schinza-mac-arm64-${{ needs.meta.outputs.version }}.*
           if-no-files-found: error
 
   build-windows:
     name: Windows x64
+    needs: [meta]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
@@ -80,17 +118,18 @@ jobs:
 
       - name: Package
         shell: bash
-        run: powershell -Command "Compress-Archive -Path dist/Schinza -DestinationPath Schinza-windows-x64.zip -Force"
+        run: powershell -Command "Compress-Archive -Path dist/Schinza -DestinationPath Schinza-windows-x64-${{ needs.meta.outputs.version }}.zip -Force"
 
       - uses: actions/upload-artifact@v5
         with:
           name: Schinza-windows-x64
-          path: Schinza-windows-x64.zip
-
+          path: Schinza-windows-x64-${{ needs.meta.outputs.version }}.zip
+          if-no-files-found: error
 
   build-mac-intel:
     name: macOS (Intel x64)
-    runs-on: macos-14          # arm64 runner + Rosetta 交叉编译 x86_64
+    needs: [meta]
+    runs-on: macos-14
     steps:
       - uses: actions/checkout@v5
 
@@ -105,11 +144,9 @@ jobs:
           set -e
           PY="/Library/Frameworks/Python.framework/Versions/3.11/bin/python3"
           arch -x86_64 "$PY" -m venv .venv-x64
-          # python.org 安装包自带 SSL 证书问题：先装 certifi 再以其为 CA
           arch -x86_64 .venv-x64/bin/python -m pip install --quiet             --trusted-host pypi.org --trusted-host files.pythonhosted.org certifi
           export SSL_CERT_FILE="$(arch -x86_64 .venv-x64/bin/python -c 'import certifi; print(certifi.where())')"
           arch -x86_64 .venv-x64/bin/python -m pip install --quiet -r requirements.txt
-          # 生成 mitmproxy CA（私钥不进仓库）
           arch -x86_64 .venv-x64/bin/mitmdump -q -p 8080 & PID=$!
           sleep 15
           kill "$PID" 2>/dev/null || true
@@ -130,30 +167,67 @@ jobs:
         shell: bash
         run: |
           set -e
-          (cd dist && zip -r ../Schinza-mac-x64.zip Schinza-x64.app)
+          (cd dist && zip -r "../Schinza-mac-x64-${{ needs.meta.outputs.version }}.zip" Schinza-x64.app)
 
       - uses: actions/upload-artifact@v5
         with:
           name: Schinza-mac-x64
-          path: Schinza-mac-x64.zip
+          path: Schinza-mac-x64-${{ needs.meta.outputs.version }}.zip
+          if-no-files-found: error
 
   release:
-    name: Publish GitHub Release (tag only)
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build-mac, build-mac-intel, build-windows]
+    name: Publish GitHub Release
+    if: |
+      startsWith(github.ref, 'refs/tags/v') ||
+      github.ref == 'refs/heads/main' ||
+      (github.event_name == 'workflow_dispatch' && inputs.create_release)
+    needs: [meta, build-mac, build-mac-intel, build-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Decide whether to publish
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          VER="${{ needs.meta.outputs.version }}"
+          TAG="v${VER}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            echo "Using existing tag ${{ github.ref_name }}"
+            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if git ls-remote --tags origin "refs/tags/${TAG}" | grep -q "refs/tags/${TAG}$"; then
+            echo "Tag ${TAG} already exists — skip creating another Release"
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/download-artifact@v5
+        if: steps.gate.outputs.publish == 'true'
         with:
           path: artifacts
 
       - name: Show artifacts
+        if: steps.gate.outputs.publish == 'true'
         run: find artifacts -type f | sort
 
       - name: Publish release
+        if: steps.gate.outputs.publish == 'true'
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.gate.outputs.tag }}
+          name: Schinza ${{ needs.meta.outputs.version }}
           files: artifacts/**/*
           generate_release_notes: true
+          make_latest: true
+          fail_on_unmatched_files: true

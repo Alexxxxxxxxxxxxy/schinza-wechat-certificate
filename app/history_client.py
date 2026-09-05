@@ -464,6 +464,53 @@ def _page_newest_ts(batch: list[dict[str, Any]]) -> int:
     return newest
 
 
+def merge_resumed_articles(
+    existing: list[dict[str, Any]],
+    incoming: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    return _dedupe(list(existing or []) + list(incoming or []))
+
+
+def oldest_publish_ts(articles: list[dict[str, Any]]) -> int | None:
+    stamps = [int(a.get("publish_ts") or 0) for a in (articles or [])]
+    stamps = [ts for ts in stamps if ts > 0]
+    return min(stamps) if stamps else None
+
+
+def resolve_history_start_offset(
+    *,
+    biz: str,
+    resume_biz: str = "",
+    resume_offset: int | None = None,
+    resume_oldest_ts: int | None = None,
+    days: int | None = None,
+    start_ts: int | None = None,
+    end_ts: int | None = None,
+) -> int:
+    """Where to start getmsg paging. 0 = newest; >0 = continue after a 100-page cap."""
+    try:
+        offset = int(resume_offset or 0)
+    except (TypeError, ValueError):
+        offset = 0
+    if offset <= 0:
+        return 0
+    if (biz or "").strip() != (resume_biz or "").strip():
+        return 0
+    range_mode = start_ts is not None or end_ts is not None
+    if not range_mode and days is None:
+        return offset
+    need_older_than = int(start_ts) if start_ts is not None else None
+    if need_older_than is None and days is not None:
+        need_older_than = int(time.time()) - max(1, int(days)) * 86400
+    if need_older_than is None:
+        return offset
+    if resume_oldest_ts is None:
+        return offset
+    if int(resume_oldest_ts) > need_older_than:
+        return offset
+    return 0
+
+
 def _dedupe(articles: list[dict[str, Any]]) -> list[dict[str, Any]]:
     seen: set[str] = set()
     out: list[dict[str, Any]] = []
@@ -646,6 +693,7 @@ def fetch_history_days(
     should_cancel: Callable[[], bool] | None = None,
     start_ts: int | None = None,
     end_ts: int | None = None,
+    start_offset: int = 0,
 ) -> dict[str, Any]:
     """Paginate getmsg and keep articles with publish_ts within the last ``days``.
 
@@ -691,11 +739,16 @@ def fetch_history_days(
         scope = "全部历史" if days is None else f"近 {days} 天"
     articles: list[dict[str, Any]] = []
     pages = 0
-    offset = 0
+    try:
+        offset = max(0, int(start_offset or 0))
+    except (TypeError, ValueError):
+        offset = 0
+    start_offset = offset
     sess = requests.Session()
     sess.trust_env = False
     hit_page_cap = False
     last_can_continue = False
+    scanned_oldest: int | None = None
     biz = str(cred.get("__biz") or "").strip()
 
     page_limit = max(1, int(max_pages))
@@ -720,8 +773,9 @@ def fetch_history_days(
             }
         if on_progress:
             elapsed = int(time.time() - t0)
+            prefix = "续翻" if start_offset else "正在拉取"
             on_progress(
-                f"正在拉取第 {i + 1} 页（已收录 {len(articles)} 篇 · 已用 {elapsed}s）…"
+                f"{prefix}第 {i + 1} 页（已收录 {len(articles)} 篇 · 已用 {elapsed}s）…"
             )
         try:
             page = fetch_getmsg_page(
@@ -792,6 +846,8 @@ def fetch_history_days(
 
         for a in batch:
             ts = int(a.get("publish_ts") or 0)
+            if ts:
+                scanned_oldest = ts if scanned_oldest is None else min(scanned_oldest, ts)
             if cutoff is not None and ts and ts < cutoff:
                 continue
             if upper_ts is not None and ts and ts > upper_ts:
@@ -881,4 +937,8 @@ def fetch_history_days(
         "merged_sightings": merged_extra,
         "__biz": biz,
         "stopped_reason": "completed",
+        "start_offset": start_offset,
+        "next_offset": offset if hit_page_cap else None,
+        "can_continue": bool(hit_page_cap and last_can_continue),
+        "scanned_oldest_ts": scanned_oldest,
     }

@@ -24,6 +24,21 @@ EXPORT_FORMATS: list[tuple[str, str, str]] = [
 FORMAT_LABELS = [f[0] for f in EXPORT_FORMATS]
 
 
+def article_list_key(art: dict[str, Any]) -> str:
+    return str(art.get("identity") or art.get("link") or art.get("title") or "")
+
+
+def articles_for_list_export(
+    articles: list[dict[str, Any]],
+    selected_keys: set[str] | list[str],
+) -> list[dict[str, Any]]:
+    """Keep only checked rows. Empty selection → empty list (do not fall back to all)."""
+    wanted = {str(k) for k in (selected_keys or []) if str(k)}
+    if not wanted:
+        return []
+    return [a for a in (articles or []) if article_list_key(a) in wanted]
+
+
 def format_key_for_label(label: str) -> str:
     for lb, _ext, key in EXPORT_FORMATS:
         if lb == label:

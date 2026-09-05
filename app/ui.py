@@ -65,9 +65,17 @@ from app.history_batch_ui import (
     group_status_color_key,
     group_status_label,
 )
-from app.history_client import describe_exception, fetch_history_days
+from app.history_client import (
+    describe_exception,
+    fetch_history_days,
+    merge_resumed_articles,
+    oldest_publish_ts,
+    resolve_history_start_offset,
+)
 from app.history_export import (
     FORMAT_LABELS,
+    article_list_key,
+    articles_for_list_export,
     default_export_filename,
     extension_for_label,
     format_key_for_label,
@@ -332,6 +340,9 @@ class CertificateApp(ctk.CTk):
         self._history_groups: list[dict[str, Any]] = []
         self._history_active_group_id: str | None = None
         self._batch_pick_open = False
+        self._history_resume: dict[str, Any] = {}
+        self._history_accumulated: list[dict[str, Any]] = []
+        self._pending_resume_merge: list[dict[str, Any]] = []
         self._batch_fetching = False
         self._batch_checks_ready = False
         self._nav_btns: dict[str, ctk.CTkButton] = {}
@@ -2775,16 +2786,35 @@ class CertificateApp(ctk.CTk):
         self.sightings.load()
         sightings = self.sightings.list_for_biz(biz)
 
+        start_ts = None
+        end_ts = None
+        if self._history_range_iso:
+            start_ts = _iso_date_to_ts(self._history_range_iso[0])
+            end_ts = _iso_date_to_ts(self._history_range_iso[1], end_of_day=True)
+        start_offset = resolve_history_start_offset(
+            biz=biz,
+            resume_biz=str(self._history_resume.get("biz") or ""),
+            resume_offset=self._history_resume.get("next_offset"),
+            resume_oldest_ts=self._history_resume.get("oldest_ts"),
+            days=self._history_days,
+            start_ts=start_ts,
+            end_ts=end_ts,
+        )
+        self._pending_resume_merge = (
+            list(self._history_accumulated or self._history_articles)
+            if start_offset > 0
+            else []
+        )
+        if start_offset > 0:
+            self.set_hist_status(
+                f"从上次中断处续翻（offset={start_offset}）…", ok=True
+            )
+
         def worker() -> None:
             def progress(msg: str) -> None:
                 self.after(0, lambda m=msg: self.set_hist_status(m, ok=True))
 
             try:
-                start_ts = None
-                end_ts = None
-                if self._history_range_iso:
-                    start_ts = _iso_date_to_ts(self._history_range_iso[0])
-                    end_ts = _iso_date_to_ts(self._history_range_iso[1], end_of_day=True)
                 result = fetch_history_days(
                     cred,
                     days=self._history_days,
@@ -2794,6 +2824,7 @@ class CertificateApp(ctk.CTk):
                     should_cancel=lambda: self._history_cancel,
                     start_ts=start_ts,
                     end_ts=end_ts,
+                    start_offset=start_offset,
                 )
             except Exception as exc:  # noqa: BLE001
                 result = {"ok": False, "error": describe_exception(exc), "articles": []}
@@ -2820,10 +2851,46 @@ class CertificateApp(ctk.CTk):
             )
             return
         articles = list(result.get("articles") or [])
+        prev = list(self._pending_resume_merge or [])
+        self._pending_resume_merge = []
+        if prev:
+            articles = merge_resumed_articles(prev, articles)
+        self._history_accumulated = list(articles)
+        if self._history_range_iso:
+            lo = _iso_date_to_ts(self._history_range_iso[0])
+            hi = _iso_date_to_ts(self._history_range_iso[1], end_of_day=True)
+            articles = [
+                a
+                for a in articles
+                if lo <= int(a.get("publish_ts") or 0) <= hi
+            ]
+        elif self._history_days is not None:
+            cutoff = int(time.time()) - int(self._history_days) * 86400
+            articles = [
+                a
+                for a in articles
+                if int(a.get("publish_ts") or 0) >= cutoff
+            ]
         self._history_articles = articles
         self._history_account_name = account_name
         self._history_selected.clear()
         self._render_history_list()
+        resume_biz = str(result.get("__biz") or (self._history_cred or {}).get("__biz") or "")
+        next_off = result.get("next_offset")
+        if result.get("ok") and result.get("hit_page_cap") and next_off:
+            oldest = result.get("scanned_oldest_ts") or oldest_publish_ts(articles)
+            prev_oldest = self._history_resume.get("oldest_ts")
+            if prev_oldest and oldest:
+                oldest = min(int(prev_oldest), int(oldest))
+            elif prev_oldest and not oldest:
+                oldest = prev_oldest
+            self._history_resume = {
+                "biz": resume_biz,
+                "next_offset": int(next_off),
+                "oldest_ts": oldest,
+            }
+        elif result.get("ok") and not result.get("hit_page_cap"):
+            self._history_resume = {}
         if not result.get("ok"):
             self.set_hist_status(
                 f"拉取失败：{result.get('error') or '未知错误'}（已展示部分结果 {len(articles)} 篇）"
@@ -2973,12 +3040,15 @@ class CertificateApp(ctk.CTk):
         self._apply_active_group_articles()
         self._render_history_groups()
 
-    def _render_history_text(self) -> tuple[str, str]:
+    def _articles_for_list_export(self) -> list[dict[str, Any]]:
+        return articles_for_list_export(self._history_articles, self._history_selected)
+
+    def _render_history_text(self, articles: list[dict[str, Any]] | None = None) -> tuple[str, str]:
         """Return (format_label, rendered text)."""
         label = self.hist_format_menu.get()
         key = format_key_for_label(label)
         text = render_export(
-            self._history_articles,
+            list(articles if articles is not None else self._history_articles),
             fmt=key,
             account_name=self._history_account_name,
             days=self._history_days,
@@ -2986,7 +3056,7 @@ class CertificateApp(ctk.CTk):
         return label, text
 
     def _article_key(self, art: dict[str, Any]) -> str:
-        return str(art.get("identity") or art.get("link") or art.get("title") or "")
+        return article_list_key(art)
 
     def select_all_history(self) -> None:
         self._history_selected = {
@@ -3158,22 +3228,24 @@ class CertificateApp(ctk.CTk):
             self.set_hist_status(f"复制失败: {exc}", ok=False)
 
     def copy_history_formatted(self) -> None:
-        if not self._history_articles:
-            self.set_hist_status("没有可复制的文章", ok=False)
+        picked = self._articles_for_list_export()
+        if not picked:
+            self.set_hist_status("请先勾选要复制的文章", ok=False)
             return
         try:
-            label, text = self._render_history_text()
+            label, text = self._render_history_text(picked)
             pyperclip.copy(text)
             self.set_hist_status(
-                f"已按「{label}」复制 {len(self._history_articles)} 篇到剪贴板",
+                f"已按「{label}」复制勾选的 {len(picked)} 篇到剪贴板",
                 ok=True,
             )
         except Exception as exc:
             self.set_hist_status(f"复制失败: {exc}", ok=False)
 
     def export_history_file(self) -> None:
-        if not self._history_articles:
-            self.set_hist_status("没有可导出的文章", ok=False)
+        picked = self._articles_for_list_export()
+        if not picked:
+            self.set_hist_status("请先勾选要导出的文章", ok=False)
             return
         label = self.hist_format_menu.get()
         ext = extension_for_label(label)
@@ -3190,7 +3262,7 @@ class CertificateApp(ctk.CTk):
         ]
         path_str = filedialog.asksaveasfilename(
             parent=self,
-            title="导出文章列表",
+            title=f"导出勾选的 {len(picked)} 篇文章列表",
             initialdir=initial_dir,
             initialfile=default_name,
             defaultextension=f".{ext}",
@@ -3199,10 +3271,10 @@ class CertificateApp(ctk.CTk):
         if not path_str:
             return
         try:
-            _label, text = self._render_history_text()
+            _label, text = self._render_history_text(picked)
             path = write_export(Path(path_str), text)
             self.set_hist_status(
-                f"已导出 {_label}（{len(self._history_articles)} 篇）→ {path}",
+                f"已导出 {_label}（勾选 {len(picked)} 篇）→ {path}",
                 ok=True,
             )
         except Exception as exc:
